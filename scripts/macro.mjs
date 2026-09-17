@@ -40,14 +40,30 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
    على منفّذات GitHub، فاستعمالُه هنا أبسطُ من إضافة اعتماديةٍ تحاكي
    بصمةَ المتصفّح.
    ===================================================================== */
-function curlText(url) {
-  return execFileSync("curl", [
-    "-sSL", "--compressed", "--max-time", "30",
-    "-A", UA,
-    "-H", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "-H", "Accept-Language: en-US,en;q=0.9",
-    url
-  ], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+function curlText(url, lean) {
+  /* `lean` يُسقط **كلَّ** ترويسات المتصفّح بما فيها الوكيل.
+
+     وهو مطلوبٌ للقارئ الوسيط تحديداً، والسلوك مقيسٌ بالتجربة: القارئ
+     يبدّل وضعَه بحسب من يظنّه طالباً.
+
+       وكيلُ كروم الكامل      →  ‎5.8KB‎: يمرّر الطلب كمتصفّحٍ فتردّ
+                                  الحمايةُ صفحةَ «Just a moment…»
+       وكيلٌ بسيط أو بلا وكيل →  ‎69KB‎: يعيد استخلاصَه النصّي للجدول
+
+     أي أن انتحالَ المتصفّح هنا **يضرّ** ولا ينفع — عكسَ ما تحتاجه
+     المصادرُ المباشرة تماماً. ولهذا صارت الترويسات خياراً لكل مصدرٍ
+     على حدة بدل أن تكون واحدةً للجميع.
+
+     وهذا اعتمادٌ على استدلالِ طرفٍ ثالث قد يتغيّر بلا إشعار، ولذلك
+     هو المصدر الأخير لا الأول: إن تغيّر سلوكُه سقط هذا المصدر وحده
+     وبقي الباقي. */
+  const args = lean
+    ? ["-sSL", "--compressed", "--max-time", "45"]
+    : ["-sSL", "--compressed", "--max-time", "45", "-A", UA,
+       "-H", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+       "-H", "Accept-Language: en-US,en;q=0.9"];
+  args.push(url);
+  return execFileSync("curl", args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
 }
 
 async function get(url, asText, extraHeaders) {
@@ -202,34 +218,87 @@ const MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
    احتياطاً — ولا يُعتمد على أيٍّ منها وحده.
    ===================================================================== */
 const ETF_SOURCES = [
-  { name: "wp-json", url: "https://farside.co.uk/wp-json/wp/v2/pages/1321",
+  { name: "wp-json", kind: "html", url: "https://farside.co.uk/wp-json/wp/v2/pages/1321",
     pick: t => { try { return JSON.parse(t).content.rendered || ""; } catch { return ""; } } },
-  { name: "all-data", url: "https://farside.co.uk/bitcoin-etf-flow-all-data/", pick: t => t },
-  { name: "flow", url: "https://farside.co.uk/bitcoin-etf-flow/", pick: t => t },
-  { name: "btc", url: "https://farside.co.uk/btc/", pick: t => t }
+  { name: "all-data", kind: "html", url: "https://farside.co.uk/bitcoin-etf-flow-all-data/", pick: t => t },
+  { name: "flow", kind: "html", url: "https://farside.co.uk/bitcoin-etf-flow/", pick: t => t },
+  /* الملاذ الأخير: قارئٌ وسيط يجلب الصفحة من عناوينه هو ويعيدها نصّاً.
+
+     ويُوضع أخيراً لا أوّلاً لأنه اعتمادٌ على طرفٍ ثالث قد يتعطّل أو
+     يُبطئ، والمصادر المباشرة تُجرَّب قبله دائماً. لكنّ وجودَه ضروري:
+     حمايةُ `farside.co.uk` تحجب **كلَّ** مسارات الدومين عن عناوين
+     مراكز البيانات — قِيس ذلك على أربعة مسارات بما فيها `wp-json`،
+     وكلُّها رجعت بصفر صفوف. فبلا وسيطٍ تسقط تدفّقات الصناديق نهائياً
+     من التشغيل الآلي. */
+  { name: "reader", kind: "md",
+    lean: true, url: "https://r.jina.ai/https://farside.co.uk/bitcoin-etf-flow-all-data/",
+    pick: t => t }
 ];
 
+/* =====================================================================
+   قارئُ صيغة Markdown.
+
+   القارئُ الوسيط يعيد الجدول نصّاً لا HTML، وكلُّ خليةٍ في سطرٍ مستقلّ
+   تفصلها أسطرُ جدولة. فالسجلّ يمتدّ من سطر التاريخ حتى التاريخ التالي،
+   وآخرُ قيمةٍ فيه هي عمود `Total`.
+   ===================================================================== */
+function rowsFromMarkdown(text) {
+  const lines = text.split("\n");
+  const dateRe = /^(\d{1,2})\s+(\w{3})\s+(\d{4})\s*$/;
+  const out = [];
+  let cur = null;
+  for (const raw of lines) {
+    const line = raw.trim();
+    const m = dateRe.exec(line);
+    if (m) { if (cur) out.push(cur); cur = { date: m[1] + " " + m[2] + " " + m[3], vals: [] }; continue; }
+    if (!cur) continue;
+    /* الأسطرُ الفارغة تُتخطّى ولا تُنهي السجلّ.
+
+       والسببُ مقيس: الفواصل بين الخلايا أسطرٌ تحمل جدولةً وحدها، وهي
+       بعد `trim` فارغةٌ تماماً كالسطر الفاصل بين السجلّات. فإنهاءُ
+       السجلّ عند أوّل فراغٍ كان يقطعه بعد خليةٍ واحدة، فيسقط كلُّ صفٍّ
+       عند شرط الحدّ الأدنى ويخرج الجدولُ فارغاً.
+
+       فالسجلُّ يُنهى بسطر التاريخ التالي أو بنهاية النصّ وحدهما. وما
+       يلتقطه زائداً بعد آخر صفٍّ يسقط لاحقاً: خلاياه ليست أرقاماً
+       فيردّها `parseMoney`. */
+    if (!line) continue;
+    cur.vals.push(line);
+  }
+  if (cur) out.push(cur);
+  /* يُعاد بنفس شكل صفوف HTML: [التاريخ, ...الصناديق, الإجمالي] فيمرّ
+     على نفس منطق التحقّق ولا تتفرّع نسختان منه. */
+  return out.filter(r => r.vals.length >= 3).map(r => [r.date, ...r.vals]);
+}
+
 async function etfFlows() {
-  let html = "", tried = [];
+  let cells = null, tried = [];
   for (const s of ETF_SOURCES) {
     try {
-      const body = s.pick(curlText(s.url));
-      const n = (body.match(/<tr[^>]*>/g) || []).length;
-      if (n > 50) { html = body; console.log("   مصدر الصناديق: " + s.name + " — " + n + " صفاً"); break; }
-      tried.push(s.name + ": " + n + " صفاً/" + body.length + "ب");
+      const body = s.pick(curlText(s.url, s.lean));
+      let got;
+      if (s.kind === "md") {
+        got = rowsFromMarkdown(body);
+      } else {
+        const rows = body.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || [];
+        got = rows.map(r => (r.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/g) || [])
+          .map(c => c.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim()));
+      }
+      if (got.length > 50) {
+        cells = got;
+        console.log("   مصدر الصناديق: " + s.name + " — " + got.length + " صفاً");
+        break;
+      }
+      tried.push(s.name + ": " + got.length + " صفاً/" + body.length + "ب");
     } catch (e) { tried.push(s.name + ": " + String(e.message || e).slice(0, 50)); }
   }
   /* التشخيص في نصّ الخطأ نفسه: حمايةُ الموقع تردّ صفحةَ تحدٍّ بدل
      الجدول، وعندها يكون الفشل «‎0‎ صفاً» بلا سببٍ ظاهر. فيُسجَّل ما وصل
      فعلاً من كل مصدر — وهو ما يفرّق بين حجبٍ وتغيّرِ تخطيط. */
-  if (!html) throw new Error("لم يصل جدول — " + tried.join(" · "));
-  const rows = html.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || [];
-  const cellsOf = r => (r.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/g) || [])
-    .map(c => c.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim());
+  if (!cells) throw new Error("لم يصل جدول — " + tried.join(" · "));
 
   const data = [];
-  for (const r of rows) {
-    const c = cellsOf(r);
+  for (const c of cells) {
     if (!c.length) continue;
     const m = /^(\d{1,2})\s+(\w{3})\s+(\d{4})$/.exec(c[0]);
     if (!m) continue;
