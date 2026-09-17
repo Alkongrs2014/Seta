@@ -1,0 +1,140 @@
+/* =====================================================================
+   مقاييسُ الدورة — تُشتقّ من الشموع اليومية لا من مصدرٍ خارجي.
+
+   وهذه نقطةٌ معمارية مقصودة: `Mayer` و`Pi Cycle` ومتوسّط السنتين
+   وقوسُ قزح كلُّها **دوالُّ في سعر البتكوين اليومي وحده**. وكثيرٌ من
+   المواقع يشتريها من مزوّدٍ مدفوع، ونحن نحسبها من ألف شمعةٍ مجانية —
+   فلا مفتاح، ولا حدَّ طلبات، ولا انقطاعَ مزوّد.
+
+   والذي يحتاج مصدراً خارجياً حقاً هو ما لا يُشتقّ من السعر: إيرادُ
+   المعدّنين (`Puell`) وحجمُ التحويلات (`NVT`) والهاش — وتلك في
+   `data.js`.
+
+   تنبيهٌ على الدقّة: هذه مقاييسُ **دورةٍ** مداها شهورٌ وسنوات. وعرضُها
+   في الأفق اللحظي مضلّل، ولهذا كلُّ استراتيجيةٍ تقرأها معلَّمةٌ
+   بـ`hz: ["weekly"]` وحده.
+   ===================================================================== */
+
+function cycleMetrics(daily, onchain) {
+  var out = onchain || {};
+  if (!daily || daily.length < 210) return out;
+  var c = daily.map(function (x) { return x.c; });
+  var px = c[c.length - 1];
+  out.px = px;
+
+  /* مضاعف ماير — السعر ÷ متوسّط ‎200‎ يوم. أبسط مقياسٍ لموقع الدورة،
+     ومداه التاريخي على البتكوين نحو ‎0.5‎ إلى ‎2.4‎. */
+  var m200 = last(sma(c, 200));
+  if (m200 > 0) out.mayer = px / m200;
+  out.ma200d = m200;
+
+  /* بي سايكل — تقاطع متوسّط ‎111‎ يوماً فوق ضعف متوسّط ‎350‎.
+     ويُعرض نسبةً (`piRatio`) لا حدثاً: «كم بقي للتقاطع» أنفعُ بكثير من
+     «هل تقاطع» التي تكون صادقةً يوماً واحداً كل أربع سنوات. */
+  if (c.length >= 360) {
+    var m111 = last(sma(c, 111)), m350 = last(sma(c, 350));
+    if (m111 > 0 && m350 > 0) {
+      out.pi111 = m111; out.pi350x2 = m350 * 2;
+      out.piRatio = m111 / (m350 * 2);
+    }
+  }
+
+  /* متوسّط السنتين — أرضيةُ التجميع التاريخية، وخمسةُ أضعافه سقفُ
+     التوزيع. يحتاج ‎730‎ شمعة، فقد لا يتوفّر مع ألفٍ وحدها في فريمٍ
+     أقصر — ويُترك غائباً بدل أن يُزوَّر بمدّةٍ أقصر. */
+  if (c.length >= 730) {
+    var m730 = last(sma(c, 730));
+    if (m730 > 0) { out.ma2y = m730; out.twoYr = px / m730; }
+  }
+
+  /* NVT — القيمة السوقية ÷ حجم التحويلات اليومي، منعَّماً بأسبوعين.
+     والقراءة بالرتبة لا بالمطلق: النسبة تتغيّر بنيوياً عبر السنين
+     (طبقةُ لايتننغ نقلت حجماً خارج السلسلة)، فالمقارنة بالماضي القريب
+     وحدها هي المعنى. */
+  if (out.txVolSeries && out.txVolSeries.length > 120 && out.supply) {
+    var tv = sma(out.txVolSeries, 14);
+    var nvtSeries = [];
+    var off = out.txVolSeries.length - Math.min(out.txVolSeries.length, c.length);
+    for (var i = 0; i < tv.length; i++) {
+      if (tv[i] === null || tv[i] <= 0) { nvtSeries.push(null); continue; }
+      var pi = c.length - tv.length + i;
+      if (pi < 0) { nvtSeries.push(null); continue; }
+      nvtSeries.push(c[pi] * out.supply / tv[i]);
+    }
+    out.nvt = last(nvtSeries);
+    out.nvtRank = pctRankOf(nvtSeries, 365);
+  }
+
+  /* قوسُ قزح — نطاقاتٌ لوغاريتمية حول خطّ النموّ التاريخي. ليست تنبّؤاً
+     بل وصفٌ لموقع السعر من منحناه الطويل، ويُعرض بندٍ مسمّى. */
+  var band = rainbowBand(px, daily[daily.length - 1].t);
+  if (band) { out.rainbow = band.i; out.rainbowT = band.t; out.rainbowC = band.c; }
+
+  /* رتبةُ الرسوم — هل الشبكة مزدحمة مقارنةً بعادتها؟ */
+  if (Number.isFinite(out.feeFast)) {
+    var fees = load("feeHist", []);
+    var nowH = Math.floor(Date.now() / 36e5);
+    if (!fees.length || fees[fees.length - 1].h !== nowH) {
+      fees.push({ h: nowH, v: out.feeFast });
+      if (fees.length > 720) fees = fees.slice(-720);
+      save("feeHist", fees);
+    }
+    if (fees.length > 24) out.feeRank = pctRankOf(fees.map(function (f) { return f.v; }), 720);
+  }
+
+  return out;
+}
+
+/* =====================================================================
+   قوسُ قزح — تسعةُ نطاقاتٍ حول خطّ نموٍّ لوغاريتمي.
+
+   المعادلة `ln(px) = a·ln(days) + b` مُعايَرةٌ على تاريخ البتكوين منذ
+   ‎2010-07-18‎. والمقصود منها الوصف لا التنبّؤ: «أين نحن من المنحنى
+   الطويل» سؤالٌ مشروع، و«إلى أين سيصل» ليس كذلك.
+   ===================================================================== */
+var RAINBOW = [
+  { t: "بيعٌ جماعي — فقاعة", c: "#d32f2f" },
+  { t: "فقاعة — احذر", c: "#f4511e" },
+  { t: "غلاءٌ واضح", c: "#fb8c00" },
+  { t: "فوق العادل", c: "#fdd835" },
+  { t: "قيمةٌ عادلة", c: "#c0ca33" },
+  { t: "ما زال رخيصاً", c: "#7cb342" },
+  { t: "تجميع", c: "#00897b" },
+  { t: "شراء", c: "#1e88e5" },
+  { t: "فرصةٌ نادرة", c: "#3949ab" }
+];
+
+function rainbowBand(px, ts) {
+  var genesis = Date.UTC(2010, 6, 18);
+  var days = (ts - genesis) / 864e5;
+  if (days < 400 || px <= 0) return null;
+  /* معاملاتٌ شائعة لنموذج قوس قزح اللوغاريتمي. */
+  var mid = Math.exp(2.9065 * Math.log(days) - 19.463);
+  var ratio = Math.log(px / mid);
+  /* عرضُ النطاق نحو ‎0.35‎ في اللوغاريتم — يعطي تسعة نطاقاتٍ تغطّي
+     المدى التاريخي كلَّه. */
+  var idx = Math.round(4 - ratio / 0.35);
+  idx = Math.max(0, Math.min(8, idx));
+  return { i: idx, t: RAINBOW[idx].t, c: RAINBOW[idx].c, mid: mid };
+}
+
+/* المعروض المتداول — يُقدَّر من الارتفاع بلا مصدرٍ خارجي.
+
+   المجموع = Σ (مكافأة الحقبة × ‎210,000‎) لكل حقبةٍ مكتملة، زائد ما
+   عُدِّن في الحقبة الجارية. والفارق عن الرقم الحقيقي أقلُّ من ‎0.3%‎
+   (عملاتٌ مفقودة وكتلٌ لم تُطالب)، وهو لا يغيّر أيَّ قراءة. */
+function supplyAt(height) {
+  if (!Number.isFinite(height)) return null;
+  var total = 0, era = 0;
+  while (era * 210000 < height) {
+    var inEra = Math.min(210000, height - era * 210000);
+    total += inEra * (50 / Math.pow(2, era));
+    era++;
+    if (era > 33) break;
+  }
+  return total;
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { cycleMetrics, rainbowBand, supplyAt, RAINBOW };
+}

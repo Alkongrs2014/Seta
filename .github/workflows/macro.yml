@@ -1,0 +1,55 @@
+name: تحديث الماكرو وتدفّقات الصناديق
+
+# =====================================================================
+# لماذا هذه المهمّة موجودة: مؤشّرات الأسهم والدولار والذهب وجدول
+# تدفّقات الصناديق لا يُرسل أيٌّ منها ترويسة CORS، فلا يستطيع المتصفّح
+# قراءتها. وهذه المهمّة تجلبها من خوادم GitHub — حيث لا CORS — وتكتبها
+# في data/macro.json داخل المستودع، فيقرأها الموقع من دومينه هو.
+#
+# كل ساعة: الأرقام يومية بطبيعتها، لكن جدول الصناديق يُحدَّث خلال يوم
+# التداول الأمريكي، وساعةٌ تكفي لالتقاطه بلا إثقال المصادر.
+# =====================================================================
+
+on:
+  schedule:
+    - cron: "17 * * * *"     # الدقيقة 17 لتفادي ازدحام رأس الساعة على منفّذات GitHub
+  workflow_dispatch:          # للتشغيل اليدوي من تبويب Actions
+  push:
+    paths:
+      - "scripts/macro.mjs"
+      - ".github/workflows/macro.yml"
+
+permissions:
+  contents: write             # مطلوبة للإيداع — بلا هذا السطر يفشل الدفع بـ 403
+
+concurrency:
+  group: macro
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: جلب البيانات وبناء macro.json
+        run: node scripts/macro.mjs
+
+      - name: إيداع التغيير إن وُجد
+        run: |
+          if [ -z "$(git status --porcelain data/macro.json)" ]; then
+            echo "لا تغيّر — لا إيداع."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/macro.json
+          git commit -m "بيانات: تحديث الماكرو وتدفّقات الصناديق"
+          # المهمّة تعمل كل ساعة وقد تتزامن مع دفعٍ يدوي — فالسحب مع
+          # إعادة الأساس قبل الدفع يمنع فشلاً عارضاً لا علاقة له بالبيانات.
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+          git push

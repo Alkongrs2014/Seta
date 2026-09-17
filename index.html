@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#080b11">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="مرصد البتكوين">
+<meta name="description" content="محلّل بتكوين شامل: اتجاه لحظي ويومي وأسبوعي، ‎52‎ استراتيجية مُعايَرة تاريخياً، تحليل فني وأونتشين وماكرو وأخبار.">
+<title>مرصد البتكوين</title>
+<link rel="manifest" id="manifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* =====================================================================
+   نظامُ التصميم.
+
+   الأرضية ثلاث طبقات لا واحدة: الصفحة أغمق من البطاقة، والبطاقة أغمق
+   من خانتها. فالعمق يُقرأ بلا حدودٍ ظاهرة، والحدودُ الكثيرة هي ما
+   يجعل اللوحات المالية تبدو كجداول بيانات.
+
+   ولونُ تمييزٍ واحد لا اثنان: التدرّج القطريّ بين أزرقَ وبنفسجي أشهرُ
+   نمطٍ يجعل الواجهة تبدو مولَّدةً آلياً، ولا تستعمله منصّةٌ مالية
+   واحدة. فالتمييز أزرقُ هادئ، والأخضر والأحمر محصوران في دلالتهما.
+
+   والاستدارة ‎9px‎ لا ‎16‎: الأدوات التقنية تستعمل حافّةً أحدّ، فتُقرأ
+   الجداول والشبكات شبكةً لا بطاقاتٍ طافية.
+   ===================================================================== */
+:root{
+  --bg:#080b11; --bg2:#0c1017; --card:#111722; --card2:#18202c; --card3:#1f2836;
+  --line:#212a38; --line2:#2e3a4b;
+  --tx:#e9eef7; --mut:#8f9bad; --dim:#5e6b7e;
+  --up:#00d19b; --dn:#ff4d5e; --neu:#f5b912; --acc:#3d7ddb;
+  --upBg:rgba(0,209,155,.13); --dnBg:rgba(255,77,94,.13);
+  --neuBg:rgba(245,185,18,.13); --accBg:rgba(61,125,219,.14);
+  --sh:0 1px 2px rgba(0,0,0,.4),0 4px 16px -6px rgba(0,0,0,.55);
+  --r:9px; --r2:7px; --r3:5px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--tx);
+  font-family:"IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:14px; line-height:1.65; padding-bottom:78px;
+  overflow-x:hidden;
+}
+b,strong{font-weight:600}
+a{color:inherit;text-decoration:none}
+.mut,.mutBox{color:var(--mut)}
+.up{color:var(--up)} .dn{color:var(--dn)} .neu{color:var(--neu)}
+.c{text-align:center}
+code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.85em;
+  background:var(--card3);padding:1px 5px;border-radius:var(--r3)}
+
+/* ---------- الترويسة ---------- */
+header{
+  position:sticky; top:0; z-index:50; background:rgba(8,11,17,.93);
+  backdrop-filter:blur(14px); border-bottom:1px solid var(--line);
+  padding:10px 14px calc(10px + env(safe-area-inset-top)) 14px;
+  padding-top:calc(10px + env(safe-area-inset-top));
+}
+.hTop{display:flex;align-items:center;gap:10px}
+.hLogo{font-size:19px}
+.hName{font-weight:700;font-size:15px;letter-spacing:-.2px}
+.hDot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex:none}
+.hStamp{color:var(--dim);font-size:11px;margin-inline-start:auto}
+#btnRefresh{
+  background:var(--card2);border:1px solid var(--line2);color:var(--tx);
+  width:32px;height:32px;border-radius:var(--r2);font-size:15px;cursor:pointer;flex:none
+}
+.hRow{display:flex;align-items:baseline;gap:12px;margin-top:6px;flex-wrap:wrap}
+#hPrice{font-family:"IBM Plex Mono",monospace;font-size:26px;font-weight:600;letter-spacing:-.5px}
+#hChg{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:15px}
+.hMeta{margin-inline-start:auto;display:flex;gap:14px;font-size:11px;color:var(--mut);text-align:center}
+.hMeta div b{display:block;font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--tx)}
+
+/* ---------- التخطيط ---------- */
+main{max-width:940px;margin:0 auto;padding:12px}
+section[data-view]{display:none}
+section[data-view].on{display:block}
+.card{
+  background:var(--card); border:1px solid var(--line); border-radius:var(--r);
+  padding:14px; margin-bottom:12px; box-shadow:var(--sh);
+}
+.card h2{font-size:14.5px;margin:0 0 11px;font-weight:600;letter-spacing:-.2px}
+.card h3.sub{font-size:12px;color:var(--mut);margin:16px 0 8px;font-weight:600;
+  text-transform:none;letter-spacing:.3px}
+.card h3.sub:first-child{margin-top:0}
+.note{color:var(--dim);font-size:11.5px;line-height:1.7;margin:10px 0 0;
+  border-top:1px solid var(--line);padding-top:9px}
+.mutBox{color:var(--mut);font-size:12.5px;margin:4px 0;text-align:center;padding:14px 0}
+
+/* ---------- بطاقات القرار ---------- */
+#verdicts{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:780px){#verdicts{grid-template-columns:repeat(3,1fr)}}
+.vcard{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:14px;box-shadow:var(--sh);position:relative;overflow:hidden
+}
+.vcard::before{content:"";position:absolute;inset-inline-start:0;top:0;bottom:0;width:3px;background:var(--dim)}
+.vcard[data-dir="1"]::before{background:var(--up)}
+.vcard[data-dir="-1"]::before{background:var(--dn)}
+.vcard.skel{color:var(--mut);text-align:center;padding:34px 14px}
+.vhead{display:flex;align-items:flex-start;gap:8px}
+.vtitle{display:flex;gap:9px;align-items:center}
+.vicon{font-size:19px}
+.vtitle b{display:block;font-size:15px;line-height:1.3}
+.vtitle small{display:block;color:var(--dim);font-size:10.5px}
+.vdir{margin-inline-start:auto;font-size:20px;letter-spacing:-2px}
+.vlabel{font-size:17px;font-weight:700;margin:9px 0 10px;letter-spacing:-.3px}
+.gauge{height:6px;background:var(--card3);border-radius:99px;position:relative;overflow:hidden}
+.gfill{height:100%;background:linear-gradient(90deg,var(--dn),var(--neu),var(--up));
+  border-radius:99px;transition:width .5s ease}
+.gmid{position:absolute;inset-block:0;inset-inline-start:50%;width:1px;background:rgba(255,255,255,.35)}
+.grow{display:flex;justify-content:space-between;align-items:center;font-size:10px;
+  color:var(--dim);margin-top:4px}
+.grow b{font-family:"IBM Plex Mono",monospace;font-size:14px;color:var(--tx)}
+.vstats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:11px 0 9px;
+  background:var(--card2);border-radius:var(--r2);padding:8px 6px}
+.vstats div{text-align:center}
+.vstats small{display:block;color:var(--dim);font-size:9.5px}
+.vstats b{font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600}
+.vstats b.ok{color:var(--up)} .vstats b.mid{color:var(--neu)} .vstats b.low{color:var(--mut)}
+.vstats b small{display:inline;font-size:9px}
+.vwhy{color:var(--mut);font-size:11.5px;margin-bottom:10px}
+.vlevels{background:var(--card2);border-radius:var(--r2);padding:9px 10px;margin-bottom:10px}
+.lvrow{display:flex;align-items:baseline;gap:7px;font-size:12px;padding:3px 0}
+.lvrow span{color:var(--mut);min-width:78px}
+.lvrow b{font-family:"IBM Plex Mono",monospace;font-size:13px}
+.lvrow small{color:var(--dim);font-size:10px;margin-inline-start:auto}
+.lvrow.inv b{color:var(--dn)}
+.vreasons h4{font-size:11px;color:var(--mut);margin:0 0 5px;font-weight:600}
+.vreasons{margin-top:9px}
+.rrow{display:flex;align-items:center;gap:7px;font-size:12px;padding:2.5px 0}
+.rrow em{margin-inline-start:auto;font-family:"IBM Plex Mono",monospace;
+  font-style:normal;color:var(--mut);font-size:11px}
+.dot{width:6px;height:6px;border-radius:50%;flex:none}
+.dot.up{background:var(--up)} .dot.dn{background:var(--dn)}
+
+/* ---------- التحذيرات ---------- */
+.warn{border-radius:var(--r2);padding:9px 11px;font-size:12.5px;margin-bottom:8px;
+  border:1px solid var(--line2);line-height:1.6}
+.warn.high{background:var(--dnBg);border-color:rgba(255,77,94,.35)}
+.warn.med{background:var(--neuBg);border-color:rgba(245,185,18,.3)}
+.warn.low{background:var(--card2)}
+.warn.ok{background:var(--upBg);border-color:rgba(0,209,155,.28)}
+.chg{font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--line)}
+.chg:last-child{border:0}
+
+/* ---------- الصفوف ---------- */
+.kv{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
+.kv:last-of-type{border-bottom:0}
+.kv span{color:var(--mut)}
+.kv b{font-family:"IBM Plex Mono",monospace;font-weight:600;text-align:left;
+  direction:ltr;unicode-bidi:plaintext}
+.kv b small{font-family:inherit}
+
+/* ---------- الشارت ---------- */
+.chartBox{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r2);
+  padding:4px;margin-bottom:9px}
+#chart{width:100%;height:290px;display:block}
+@media(min-width:700px){#chart{height:380px}}
+.seg{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px}
+.seg button{
+  background:var(--card2);border:1px solid var(--line2);color:var(--mut);
+  padding:5px 11px;border-radius:var(--r2);font-size:12px;cursor:pointer;
+  font-family:inherit;transition:.15s
+}
+.seg button.on{background:var(--accBg);border-color:var(--acc);color:var(--tx);font-weight:600}
+.seg.small button{padding:4px 9px;font-size:11px}
+
+/* ---------- المستويات ---------- */
+.pxNow{text-align:center;font-size:12px;color:var(--mut);padding:7px;
+  background:var(--card2);border-radius:var(--r2);margin-bottom:8px}
+.pxNow b{font-family:"IBM Plex Mono",monospace;color:var(--tx);font-size:14px}
+.lvl{display:flex;align-items:center;gap:8px;padding:6px 9px;font-size:12.5px;
+  border-radius:var(--r3);margin-bottom:3px;background:var(--card2)}
+.lvl b{font-family:"IBM Plex Mono",monospace;min-width:74px}
+.lvl.above b{color:var(--dn)} .lvl.below b{color:var(--up)}
+.lvl span{color:var(--mut)}
+.lvl .tag{font-style:normal;font-size:9.5px;background:var(--card3);color:var(--dim);
+  padding:1px 6px;border-radius:99px}
+.lvl i{margin-inline-start:auto;font-style:normal;font-family:"IBM Plex Mono",monospace;
+  font-size:11px;color:var(--dim)}
+.lvl.near{background:var(--accBg);border:1px solid rgba(61,125,219,.3)}
+
+/* ---------- التباعدات ---------- */
+.divs{margin-top:11px;border-top:1px solid var(--line);padding-top:9px}
+.divs h4{font-size:11.5px;color:var(--mut);margin:0 0 6px}
+.drow{font-size:12px;padding:5px 8px;border-radius:var(--r3);margin-bottom:4px;background:var(--card2)}
+.drow.up{border-inline-start:2px solid var(--up)}
+.drow.dn{border-inline-start:2px solid var(--dn)}
+.drow small{display:block;color:var(--dim);font-size:10.5px}
+
+/* ---------- جدول الاستراتيجيات ---------- */
+.calibNote{background:var(--card2);border-radius:var(--r2);padding:10px;
+  font-size:11.5px;color:var(--mut);margin-bottom:10px;line-height:1.7}
+.calibNote p{margin:7px 0 0;color:var(--dim);font-size:11px}
+.tblWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.stbl{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
+.stbl th{text-align:right;color:var(--mut);font-weight:600;font-size:11px;
+  padding:7px 8px;border-bottom:1px solid var(--line2);white-space:nowrap}
+.stbl th.c{text-align:center}
+.stbl td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+.stbl td.c{text-align:center;font-family:"IBM Plex Mono",monospace}
+.stbl tr.on td{background:var(--card2)}
+.stbl td b{display:block;font-size:12.5px}
+.stbl td small{color:var(--dim);font-size:10px}
+.sdesc{color:var(--dim);font-size:10.5px;margin:3px 0 0;line-height:1.6;max-width:330px}
+.stbl em{font-style:normal;font-size:11.5px;font-weight:600}
+.stbl em.up{color:var(--up)} .stbl em.dn{color:var(--dn)}
+.stbl em.quiet{color:var(--dim);font-weight:400}
+.stbl em.off{color:var(--neu);font-weight:400}
+
+/* ---------- الخوف والطمع ---------- */
+.fngBig{text-align:center;font-size:44px;font-weight:700;line-height:1.1;
+  font-family:"IBM Plex Mono",monospace}
+.fngBig small{display:block;font-size:13px;font-family:inherit;font-weight:500}
+.spark{display:flex;align-items:flex-end;gap:3px;height:42px;margin-top:12px}
+.spark i{flex:1;border-radius:2px 2px 0 0;min-height:4px}
+.sparkLbl{display:flex;justify-content:space-between;font-size:10px;color:var(--dim);margin-top:3px}
+
+/* ---------- الأخبار ---------- */
+.newsScore{display:flex;align-items:center;gap:11px;background:var(--card2);
+  border:1px solid var(--line2);border-radius:var(--r2);padding:10px 12px;margin-bottom:10px}
+.newsScore b{font-family:"IBM Plex Mono",monospace;font-size:24px;font-weight:700}
+.newsScore span{font-size:11.5px;color:var(--mut);line-height:1.5}
+.nrow{display:block;padding:9px 0;border-bottom:1px solid var(--line)}
+.nrow:last-of-type{border-bottom:0}
+.nmeta{display:flex;gap:8px;align-items:center;font-size:10.5px;color:var(--dim);margin-bottom:3px}
+.nmeta em{font-style:normal;font-weight:600}
+.nmeta i{margin-inline-start:auto;font-style:normal}
+.nrow p{margin:0;font-size:13px;line-height:1.55}
+
+/* ---------- المخاطرة ---------- */
+.frm{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.frm label{font-size:11px;color:var(--mut);display:block;margin-bottom:3px}
+.frm input,.frm select{
+  width:100%;background:var(--card2);border:1px solid var(--line2);color:var(--tx);
+  border-radius:var(--r2);padding:8px 10px;font-size:14px;font-family:"IBM Plex Mono",monospace;
+  direction:ltr;text-align:left
+}
+.frm select{font-family:inherit;direction:rtl;text-align:right}
+.frm .wide{grid-column:1/-1}
+.btn{width:100%;background:var(--acc);border:0;color:#fff;padding:10px;
+  border-radius:var(--r2);font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit}
+.btn.ghost{background:var(--card2);border:1px solid var(--line2);color:var(--tx)}
+.rmult{margin-top:11px;border-top:1px solid var(--line);padding-top:9px}
+.rmult h4{font-size:11.5px;color:var(--mut);margin:0 0 5px}
+.arow{display:flex;align-items:center;gap:9px;padding:7px 9px;background:var(--card2);
+  border-radius:var(--r3);margin-bottom:4px;font-size:12.5px}
+.arow b{font-family:"IBM Plex Mono",monospace}
+.arow button{margin-inline-start:auto;background:none;border:1px solid var(--line2);
+  color:var(--mut);border-radius:var(--r3);padding:2px 9px;font-size:11px;cursor:pointer;font-family:inherit}
+
+/* ---------- صحّة المصادر ---------- */
+.srow{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;
+  border-bottom:1px solid var(--line)}
+.srow:last-of-type{border-bottom:0}
+.srow i{width:7px;height:7px;border-radius:50%;flex:none}
+.srow.ok i{background:var(--up)} .srow.mid i{background:var(--neu)} .srow.bad i{background:var(--dn)}
+.srow span{color:var(--mut)}
+.srow b{margin-inline-start:auto;font-size:11px;color:var(--dim);font-weight:400}
+
+/* ---------- تعلّم ---------- */
+.gloss{border-bottom:1px solid var(--line);padding:9px 0}
+.gloss:last-child{border:0}
+.gloss b{display:block;font-size:13px;margin-bottom:2px}
+.gloss p{margin:0;color:var(--mut);font-size:12px;line-height:1.7}
+
+/* ---------- شريط التبويبات ---------- */
+.tabbar{
+  position:fixed;bottom:0;inset-inline:0;z-index:60;display:flex;
+  background:rgba(8,11,17,.96);backdrop-filter:blur(14px);
+  border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);
+  overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none
+}
+.tabbar::-webkit-scrollbar{display:none}
+.tabbar button{
+  flex:1 0 auto;min-width:62px;background:none;border:0;color:var(--dim);
+  padding:8px 6px 9px;font-size:9.5px;cursor:pointer;font-family:inherit;
+  display:flex;flex-direction:column;align-items:center;gap:2px
+}
+.tabbar button i{font-style:normal;font-size:17px;line-height:1}
+.tabbar button.on{color:var(--acc)}
+
+#alertBar{
+  position:fixed;bottom:calc(64px + env(safe-area-inset-bottom));inset-inline:12px;z-index:70;
+  background:var(--acc);color:#fff;border-radius:var(--r2);padding:11px 13px;
+  font-size:12.5px;box-shadow:0 8px 26px rgba(0,0,0,.5);
+  transform:translateY(140%);transition:.35s;opacity:0
+}
+#alertBar.on{transform:translateY(0);opacity:1}
+
+.spin{display:inline-block;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.disc{color:var(--dim);font-size:11px;line-height:1.75;text-align:center;
+  padding:16px 12px 6px;max-width:620px;margin:0 auto}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hTop">
+    <span class="hLogo">₿</span>
+    <span class="hName">مرصد البتكوين</span>
+    <span class="hDot" id="hDot"></span>
+    <span class="hStamp" id="hStamp">…</span>
+    <button id="btnRefresh" title="تحديث">⟳</button>
+  </div>
+  <div class="hRow">
+    <span id="hPrice">—</span>
+    <span id="hChg">—</span>
+    <div class="hMeta">
+      <div>التمويل<b id="hFund">—</b></div>
+      <div>القادم<b id="hFundNext">—</b></div>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ============ القرار ============ -->
+<section data-view="verdict" class="on">
+  <div id="verdicts"></div>
+  <div id="conflicts" style="margin-bottom:12px"></div>
+
+  <div class="card">
+    <h2>🔄 ما الذي تغيّر؟</h2>
+    <div id="changes"></div>
+  </div>
+
+  <div class="card">
+    <h2>📊 أرقام اليوم</h2>
+    <div id="today"></div>
+  </div>
+
+  <div class="card">
+    <h2>🔥 سوق الرافعة</h2>
+    <div id="derivs"></div>
+  </div>
+
+  <div class="card">
+    <h2>😨 مؤشّر الخوف والطمع</h2>
+    <div id="fng"></div>
+  </div>
+
+  <div class="card">
+    <h2>🩺 صحّة المصادر</h2>
+    <div id="sources"></div>
+  </div>
+</section>
+
+<!-- ============ الفني ============ -->
+<section data-view="tech">
+  <div class="card">
+    <h2>📈 الشارت</h2>
+    <div class="seg" id="tfPicker">
+      <button data-tf="5m">5 دقائق</button>
+      <button data-tf="15m">15 دقيقة</button>
+      <button data-tf="1h" class="on">ساعة</button>
+      <button data-tf="4h">4 ساعات</button>
+      <button data-tf="1d">يومي</button>
+      <button data-tf="1w">أسبوعي</button>
+    </div>
+    <div class="chartBox"><canvas id="chart"></canvas></div>
+    <div class="seg small" id="layerPicker">
+      <button data-layer="ema" class="on">المتوسّطات</button>
+      <button data-layer="bb">بولنجر</button>
+      <button data-layer="vp" class="on">ملفّ الحجم</button>
+      <button data-layer="levels" class="on">مستويات القرار</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🔬 قراءات المؤشّرات</h2>
+    <div id="indicators"></div>
+  </div>
+
+  <div class="card">
+    <h2>🎯 مستويات يراقبها السوق</h2>
+    <div id="levels"></div>
+  </div>
+</section>
+
+<!-- ============ الاستراتيجيات ============ -->
+<section data-view="strat">
+  <div class="card">
+    <h2>🧠 الاستراتيجيات ومصداقيتها</h2>
+    <div class="seg" id="hzPicker">
+      <button data-hz="scalp">⚡ لحظي</button>
+      <button data-hz="daily" class="on">📅 يومي</button>
+      <button data-hz="weekly">📆 أسبوعي</button>
+    </div>
+    <div id="strategies"></div>
+    <div style="margin-top:10px">
+      <button class="btn ghost" id="btnRecalib">إعادة المعايرة الآن</button>
+      <p class="note" id="calibState"></p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ الأونتشين ============ -->
+<section data-view="chain">
+  <div class="card">
+    <h2>⛓️ الشبكة والدورة</h2>
+    <div id="onchain"></div>
+  </div>
+</section>
+
+<!-- ============ السوق والماكرو ============ -->
+<section data-view="macro">
+  <div class="card">
+    <h2>🌍 السوق والماكرو</h2>
+    <div id="macro"></div>
+  </div>
+</section>
+
+<!-- ============ الأخبار ============ -->
+<section data-view="news">
+  <div class="card">
+    <h2>📰 أخبار البتكوين</h2>
+    <div id="news"></div>
+  </div>
+</section>
+
+<!-- ============ المخاطرة ============ -->
+<section data-view="risk">
+  <div class="card">
+    <h2>🛡️ حجم الصفقة والتصفية</h2>
+    <div class="seg" id="sideSeg">
+      <button data-side="long" class="on">شراء</button>
+      <button data-side="short">بيع</button>
+    </div>
+    <div class="frm">
+      <div><label>رأس المال ($)</label><input id="iCap" type="number" value="1000" inputmode="decimal"></div>
+      <div><label>المخاطرة (%)</label><input id="iRisk" type="number" value="1" step="0.1" inputmode="decimal"></div>
+      <div><label>سعر الدخول</label><input id="iEntry" type="number" inputmode="decimal"></div>
+      <div><label>وقف الخسارة</label><input id="iStop" type="number" inputmode="decimal"></div>
+      <div class="wide"><label>الرافعة (×)</label><input id="iLev" type="number" value="5" inputmode="decimal"></div>
+    </div>
+    <button class="btn" id="btnCalc">احسب</button>
+    <div id="calcOut" style="margin-top:11px"></div>
+  </div>
+
+  <div class="card">
+    <h2>🔔 التنبيهات</h2>
+    <div class="frm">
+      <div><label>السعر</label><input id="aPrice" type="number" inputmode="decimal"></div>
+      <div><label>الاتجاه</label>
+        <select id="aDir"><option value="above">صعوداً ↑</option><option value="below">هبوطاً ↓</option></select>
+      </div>
+    </div>
+    <button class="btn ghost" id="btnAddAlert">أضف تنبيه سعر</button>
+    <div class="frm" style="margin-top:10px">
+      <div class="wide"><label>تنبيه عند انقلاب الاتجاه</label>
+        <select id="aHz">
+          <option value="scalp">⚡ الأفق اللحظي</option>
+          <option value="daily" selected>📅 الأفق اليومي</option>
+          <option value="weekly">📆 الأفق الأسبوعي</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn ghost" id="btnAddFlip">أضف تنبيه انقلاب</button>
+    <div id="alerts" style="margin-top:11px"></div>
+    <p class="note">التنبيهات تعمل والصفحة مفتوحة. وتنبيهُ الانقلاب يُطلق حين ينتقل الأفق من نطاقٍ إلى آخر — لا عند كل تذبذبٍ في الرقم.</p>
+  </div>
+
+  <div class="card">
+    <h2>⚠️ قواعد نجاة</h2>
+    <div class="gloss"><b>التصفية قبل الوقف تعني رافعةً أعلى مما تحتمل المسافة</b>
+      <p>إن كان وقفك على بُعد ‎3%‎ ورافعتك ‎50‎ ضعفاً، تقع تصفيتك عند ‎2%‎ ولا يصل وقفك أبداً. الحاسبة أعلاه تحذّرك من هذا قبل الدخول.</p></div>
+    <div class="gloss"><b>التمويل الموجب المرتفع ليس دليل قوّة</b>
+      <p>هو دليلُ ازدحامٍ في الشراء بالرافعة — أي وقودُ تصفيةٍ عند أوّل هبوط. وأعنفُ الهبوطات تقع من هذه الحالة بالذات.</p></div>
+    <div class="gloss"><b>الأفق الأصغر لا يُلغي الأكبر</b>
+      <p>ارتدادٌ صاعد على الخمس دقائق داخل هبوطٍ أسبوعي يبقى ارتداداً. وبطاقاتُ القرار تعرض الآفاق الثلاثة معاً لهذا السبب، وتحذّرك صراحةً عند تعارضها.</p></div>
+    <div class="gloss"><b>لا استراتيجية تصيب دائماً</b>
+      <p>أفضلُ ما في الجدول يصيب نحو ‎55–65%‎. ومن يَعِدك بأكثر يبيعك وهماً — أو يقيس بتسريب مستقبل.</p></div>
+  </div>
+</section>
+
+<!-- ============ تعلّم ============ -->
+<section data-view="learn">
+  <div class="card">
+    <h2>🎓 المصطلحات بلغةٍ بسيطة</h2>
+    <div class="gloss"><b>الآفاق الثلاثة</b><p>اللحظي يقرأ ‎5‎ و‎15‎ دقيقة والساعة، ويصف الساعات القادمة. واليومي يقرأ الساعة و‎4‎ ساعات واليومي، ويصف أياماً. والأسبوعي يقرأ ‎4‎ ساعات واليومي والأسبوعي، ويصف أسابيع. ولكلٍّ استراتيجياتُه وأوزانُه.</p></div>
+    <div class="gloss"><b>مستوى الإبطال</b><p>السعر الذي إن بلغه السوق سقط السيناريو. وهو أهمُّ رقمٍ في البطاقة: اتجاهٌ بلا نقطةِ إبطالٍ رأيٌ لا قراءة.</p></div>
+    <div class="gloss"><b>نسبة الإجماع</b><p>حصّةُ الجهة الغالبة من كتلة الأدلّة المرجّحة. وحين تنزل حصّةُ المخالف تحت ‎65%‎ يُعلَن التعارض ولا يُعطى اتجاه.</p></div>
+    <div class="gloss"><b>الحافّة المقيسة</b><p>نسبةُ نجاح الاستراتيجية على تاريخ البتكوين في هذا الأفق. تُحسب في متصفّحك، وتصير وزنَها في الإجماع — فالأوزان مقيسة لا مخترَعة.</p></div>
+    <div class="gloss"><b>رسوم التمويل</b><p>دفعةٌ دوريّة بين المشترين والبائعين في العقود الدائمة. موجبةٌ تعني أن المشترين يدفعون — أي أن الشراء مزدحم.</p></div>
+    <div class="gloss"><b>العقود المفتوحة</b><p>حجمُ المراكز القائمة. ارتفاعُها مع الصعود يعني شراءً جديداً، ومع الهبوط يعني بيعاً جديداً. وانخفاضُها يعني إغلاقَ مراكز لا دخولاً.</p></div>
+    <div class="gloss"><b>دلتا المشتري الآخذ</b><p>من كان يبادر: المشتري الذي يضرب سعر العرض أم البائع الذي يضرب الطلب. سعرٌ يصعد ودلتا تهبط يعني صعوداً يُقابَل ببيعٍ مبادر — أي توزيع.</p></div>
+    <div class="gloss"><b>بريميوم كوينبيز</b><p>فارقُ سعر كوينبيز عن بايننس. موجبٌ يعني طلباً أمريكياً مؤسّسياً، وسالبٌ يعني بيعاً منه.</p></div>
+    <div class="gloss"><b>مضاعف ماير</b><p>السعر ÷ متوسّط ‎200‎ يوم. تحت ‎0.8‎ وقعت قيعانٌ كبرى تاريخياً، وفوق ‎2.4‎ وقعت قمم. أربعُ دوراتٍ ليست عيّنةً تُبنى عليها يقينيات.</p></div>
+    <div class="gloss"><b>مضاعف بويل</b><p>إيرادُ المعدّنين مقارنةً بمتوسّطه السنوي. انخفاضُه الشديد يعني ضغطاً على المعدّنين — واستسلامُهم وقع عند قيعانٍ تاريخية.</p></div>
+    <div class="gloss"><b>شرائط الهاش</b><p>متوسّطُ قوّة التعدين ‎30‎ يوماً مقابل ‎60‎. تقاطعُه صعوداً بعد هبوطٍ يعني تعافي المعدّنين — من أدقّ إشارات القيعان وأبطئها.</p></div>
+    <div class="gloss"><b>بي سايكل</b><p>حين يتجاوز متوسّطُ ‎111‎ يوماً ضعفَ متوسّط ‎350‎ يوماً. أصاب كلَّ قمّةٍ كبرى في تاريخ البتكوين خلال أيامٍ منها — بثلاث عيّنات فقط.</p></div>
+    <div class="gloss"><b>ATR</b><p>متوسّطُ المدى الحقيقي — كم يتحرّك البتكوين عادةً في الشمعة. أساسُ حساب الأوقاف والأهداف، لأن وقفاً أضيق من التذبذب المعتاد يُضرب بالضجيج وحده.</p></div>
+    <div class="gloss"><b>ADX</b><p>قوّةُ الاتجاه لا جهتُه. فوق ‎25‎ يوجد اتجاه، وتحت ‎20‎ السوق عرضي. وهو ما يفصل متى تعمل استراتيجيات الاتجاه ومتى تعمل استراتيجيات الارتداد.</p></div>
+    <div class="gloss"><b>التباعد</b><p>السعر يصنع قمّةً أعلى والمؤشّر يصنع قمّةً أدنى — أي أن الزخم يتخلّى عن الحركة. والتباعدُ المخفيّ عكسُه: إشارةُ استمرارٍ لا انعكاس.</p></div>
+    <div class="gloss"><b>ملفّ الحجم و POC</b><p>أين تداول السوق فعلاً. نقطةُ التحكّم هي أكثرُ سعرٍ تداولاً، وحوافُّ منطقة القيمة حيث يتوقّف السوق — مستوياتٌ يبنيها السوق لا نرسمها.</p></div>
+    <div class="gloss"><b>فجوة القيمة العادلة</b><p>ثلاثُ شموعٍ لا تتلامس أطرافُها — منطقةٌ تُرك فيها سعرٌ بلا تداولٍ متوازن، ويميل السوق للعودة إليها.</p></div>
+    <div class="gloss"><b>مسحُ السيولة</b><p>فتيلٌ يخترق قمّةً سابقة ثم يُغلق تحتها. إخراجُ الأوقاف قبل الحركة الحقيقية — وأصدقُ نمطٍ انعكاسي في سوقٍ مرفوع.</p></div>
+  </div>
+
+  <div class="card">
+    <h2>✅ روتين يومي (5 دقائق)</h2>
+    <div class="gloss"><b>١ — ابدأ من الأفق الأسبوعي</b><p>هو الذي يحدّد هل أنت مع التيار أم ضدّه. وكلُّ ما دونه يُقرأ داخله.</p></div>
+    <div class="gloss"><b>٢ — اقرأ تحذير التعارض</b><p>إن كان اللحظي يخالف الأسبوعي فأنت أمام حركةٍ مضادّة: أقصرُ عمراً وأعلى مخاطرة.</p></div>
+    <div class="gloss"><b>٣ — انظر مستوى الإبطال قبل الهدف</b><p>اعرف أين تكون مخطئاً قبل أن تحلم بالربح.</p></div>
+    <div class="gloss"><b>٤ — افحص التمويل والعقود المفتوحة</b><p>تمويلٌ متطرّف وعقودٌ مرتفعة يعني سوقاً هشّاً مهما بدا الاتجاه قوياً.</p></div>
+    <div class="gloss"><b>٥ — احسب الحجم قبل الدخول لا بعده</b><p>وتأكّد أن التصفية تقع بعد وقفك لا قبله.</p></div>
+  </div>
+</section>
+
+</main>
+
+<div id="alertBar"></div>
+
+<nav class="tabbar" id="tabbar">
+  <button data-go="verdict" class="on"><i>⚡</i>القرار</button>
+  <button data-go="tech"><i>📈</i>الفني</button>
+  <button data-go="strat"><i>🧠</i>الاستراتيجيات</button>
+  <button data-go="chain"><i>⛓️</i>الأونتشين</button>
+  <button data-go="macro"><i>🌍</i>الماكرو</button>
+  <button data-go="news"><i>📰</i>الأخبار</button>
+  <button data-go="risk"><i>🛡️</i>المخاطرة</button>
+  <button data-go="learn"><i>🎓</i>تعلّم</button>
+</nav>
+
+<p class="disc">
+  أداةٌ معلوماتية وتعليمية. تعرض قراءاتٍ واحتمالاتٍ محسوبة، ولا تقدّم توصياتِ شراءٍ أو بيع
+  ولا نصائحَ استثمارية. البيانات من مصادر خارجية مجانية وقد تتأخّر أو تنقطع، والنتائج
+  التاريخية لا تضمن المستقبل. التداول بالرافعة قد يُفقدك رأس مالك بالكامل،
+  والقرار ومسؤوليتُه على المستخدم وحده.
+</p>
+
+<script src="js/core.js"></script>
+<script src="js/indicators.js"></script>
+<script src="js/strategies.js"></script>
+<script src="js/consensus.js"></script>
+<script src="js/onchain.js"></script>
+<script src="js/data.js"></script>
+<script src="js/backtest.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/render.js"></script>
+<script>
+/* ملفُّ التعريف يُبنى في الذاكرة — فلا ملفٌّ إضافي في المستودع، ويبقى
+   «أضف إلى الشاشة الرئيسية» عاملاً. */
+try{
+  var man = { name:"مرصد البتكوين", short_name:"البتكوين", start_url:".", scope:".",
+    display:"standalone", dir:"rtl", lang:"ar",
+    background_color:"#080b11", theme_color:"#080b11" };
+  document.getElementById("manifest").href =
+    URL.createObjectURL(new Blob([JSON.stringify(man)],{type:"application/manifest+json"}));
+}catch(e){}
+</script>
+<script src="js/app.js"></script>
+</body>
+</html>
