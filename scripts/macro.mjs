@@ -84,12 +84,48 @@ async function yahoo(symbol, range = "1y") {
   return out;
 }
 
-/* شموعُ البتكوين اليومية — تُجلب هنا أيضاً لأن الارتباط يُحسب على
-   الخادم لا في المتصفّح: حسابُه هناك يعني تحميل سلاسل الماكرو كاملةً
-   إلى الجوّال بلا داعٍ. */
+/* =====================================================================
+   شموعُ البتكوين اليومية — بسلسلةِ بدائل، والترتيب مقصود.
+
+   تُجلب هنا لأن الارتباط يُحسب على الخادم لا في المتصفّح: حسابُه هناك
+   يعني تحميل سلاسل الماكرو كاملةً إلى الجوّال بلا داعٍ.
+
+   ولماذا كراكن أولاً وبايننس أخيراً — وهي عكسُ ترتيب الموقع نفسه:
+   **بايننس تردّ ‎451‎ على منفّذات GitHub**. وقِيس هذا فعلاً في أوّل
+   تشغيل: `HTTP 451 Unavailable For Legal Reasons` — حجبٌ جغرافي على
+   عناوين مراكز البيانات الأمريكية. فالمتصفّح عند المستخدم يصل إلى
+   بايننس بلا مشكلة، والخادمُ لا يصل.
+
+   وهذا هو سببُ وجود السلسلة أصلاً: بيئةُ التشغيل تختلف عن بيئة
+   التطوير في الشبكة لا في الكود، ومصدرٌ واحد يعني عطلاً صامتاً.
+   وكراكن وكوينبيز أمريكيّتان مرخَّصتان فلا تحجبان مراكز البيانات.
+   ===================================================================== */
+const BTC_SOURCES = [
+  { name: "kraken", url: "https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440",
+    parse: j => {
+      const res = j.result || {};
+      const key = Object.keys(res).find(k => k !== "last");
+      return (res[key] || []).map(r => ({ t: r[0] * 1000, c: +r[4] }));
+    } },
+  { name: "coinbase", url: "https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=86400",
+    parse: j => j.map(r => ({ t: r[0] * 1000, c: +r[4] })).sort((a, b) => a.t - b.t) },
+  { name: "binance-vision", url: "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=400",
+    parse: j => j.map(r => ({ t: r[0], c: +r[4] })) },
+  { name: "binance", url: "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=400",
+    parse: j => j.map(r => ({ t: r[0], c: +r[4] })) }
+];
+
 async function btcDaily() {
-  const raw = await get("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=400");
-  return raw.map(r => ({ t: r[0], c: +r[4] }));
+  const errs = [];
+  for (const s of BTC_SOURCES) {
+    try {
+      const rows = s.parse(await get(s.url));
+      if (rows.length < 120) throw new Error("سلسلة قصيرة (" + rows.length + ")");
+      console.log("   مصدر البتكوين: " + s.name + " — " + rows.length + " شمعة");
+      return rows;
+    } catch (e) { errs.push(s.name + ": " + (e.message || e)); }
+  }
+  throw new Error(errs.join(" · "));
 }
 
 /* محاذاةُ سلسلتين باليوم — الأسهم تُغلق في العطل والبتكوين لا يُغلق،
@@ -150,8 +186,30 @@ function parseMoney(s) {
 const MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
                  Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
 
+/* المسارات بالترتيب — الصفحة نُقلت مرّةً من `/bitcoin-etf-flow/` وقد
+   تُنقل ثانيةً، فمسارٌ واحد يعني عطلاً عند أوّل إعادة تنظيم. */
+const ETF_URLS = [
+  "https://farside.co.uk/bitcoin-etf-flow-all-data/",
+  "https://farside.co.uk/bitcoin-etf-flow/",
+  "https://farside.co.uk/btc/"
+];
+
 async function etfFlows() {
-  const html = curlText("https://farside.co.uk/bitcoin-etf-flow-all-data/");
+  let html = "", tried = [];
+  for (const u of ETF_URLS) {
+    try {
+      const t = curlText(u);
+      if ((t.match(/<tr[^>]*>/g) || []).length > 50) { html = t; break; }
+      tried.push(u.split("/").filter(Boolean).pop() + ": " +
+        (t.match(/<tr[^>]*>/g) || []).length + " صفاً، " + t.length + " بايت");
+    } catch (e) { tried.push(u.split("/").filter(Boolean).pop() + ": " + (e.message || e).slice(0, 60)); }
+  }
+  /* التشخيص في نصّ الخطأ نفسه: حمايةُ الموقع قد تردّ صفحةَ تحدٍّ بدل
+     الجدول، وعندها يكون الفشل «‎0‎ صفاً» بلا سببٍ ظاهر. فيُسجَّل عنوانُ
+     ما وصل فعلاً — وهو ما يفرّق بين حجبٍ وتغيّرِ تخطيط. */
+  if (!html) {
+    throw new Error("لم يصل جدول — " + tried.join(" · "));
+  }
   const rows = html.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || [];
   const cellsOf = r => (r.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/g) || [])
     .map(c => c.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim());
