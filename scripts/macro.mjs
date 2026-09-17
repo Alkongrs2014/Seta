@@ -186,30 +186,43 @@ function parseMoney(s) {
 const MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
                  Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
 
-/* المسارات بالترتيب — الصفحة نُقلت مرّةً من `/bitcoin-etf-flow/` وقد
-   تُنقل ثانيةً، فمسارٌ واحد يعني عطلاً عند أوّل إعادة تنظيم. */
-const ETF_URLS = [
-  "https://farside.co.uk/bitcoin-etf-flow-all-data/",
-  "https://farside.co.uk/bitcoin-etf-flow/",
-  "https://farside.co.uk/btc/"
+/* =====================================================================
+   مصادرُ الجدول بالترتيب — وواجهةُ ووردبريس أوّلاً.
+
+   صفحةُ HTML العادية تردّ على منفّذات GitHub صفحةَ حجبٍ حجمُها نحو
+   ‎5.6KB‎ بلا صفٍّ واحد — قِيس هذا في ثلاثة مساراتٍ مختلفة، وهو حجبُ
+   عناوينِ مراكز البيانات لا تغيّرُ تخطيط.
+
+   والموقع مبنيٌّ على ووردبريس، وواجهتُه `wp-json` تعيد **نفس الجدول
+   داخل حقل JSON** عبر مسارٍ مختلف قد لا تشمله قاعدةُ الحجب. وهي
+   كذلك أثبتُ أمام تغيّر التصميم: الحقل `content.rendered` يبقى ولو
+   تغيّر شكلُ الصفحة.
+
+   ورقمُ الصفحة `1321` قد يتغيّر بإعادة نشر، فتبقى مسارات HTML خلفَه
+   احتياطاً — ولا يُعتمد على أيٍّ منها وحده.
+   ===================================================================== */
+const ETF_SOURCES = [
+  { name: "wp-json", url: "https://farside.co.uk/wp-json/wp/v2/pages/1321",
+    pick: t => { try { return JSON.parse(t).content.rendered || ""; } catch { return ""; } } },
+  { name: "all-data", url: "https://farside.co.uk/bitcoin-etf-flow-all-data/", pick: t => t },
+  { name: "flow", url: "https://farside.co.uk/bitcoin-etf-flow/", pick: t => t },
+  { name: "btc", url: "https://farside.co.uk/btc/", pick: t => t }
 ];
 
 async function etfFlows() {
   let html = "", tried = [];
-  for (const u of ETF_URLS) {
+  for (const s of ETF_SOURCES) {
     try {
-      const t = curlText(u);
-      if ((t.match(/<tr[^>]*>/g) || []).length > 50) { html = t; break; }
-      tried.push(u.split("/").filter(Boolean).pop() + ": " +
-        (t.match(/<tr[^>]*>/g) || []).length + " صفاً، " + t.length + " بايت");
-    } catch (e) { tried.push(u.split("/").filter(Boolean).pop() + ": " + (e.message || e).slice(0, 60)); }
+      const body = s.pick(curlText(s.url));
+      const n = (body.match(/<tr[^>]*>/g) || []).length;
+      if (n > 50) { html = body; console.log("   مصدر الصناديق: " + s.name + " — " + n + " صفاً"); break; }
+      tried.push(s.name + ": " + n + " صفاً/" + body.length + "ب");
+    } catch (e) { tried.push(s.name + ": " + String(e.message || e).slice(0, 50)); }
   }
-  /* التشخيص في نصّ الخطأ نفسه: حمايةُ الموقع قد تردّ صفحةَ تحدٍّ بدل
-     الجدول، وعندها يكون الفشل «‎0‎ صفاً» بلا سببٍ ظاهر. فيُسجَّل عنوانُ
-     ما وصل فعلاً — وهو ما يفرّق بين حجبٍ وتغيّرِ تخطيط. */
-  if (!html) {
-    throw new Error("لم يصل جدول — " + tried.join(" · "));
-  }
+  /* التشخيص في نصّ الخطأ نفسه: حمايةُ الموقع تردّ صفحةَ تحدٍّ بدل
+     الجدول، وعندها يكون الفشل «‎0‎ صفاً» بلا سببٍ ظاهر. فيُسجَّل ما وصل
+     فعلاً من كل مصدر — وهو ما يفرّق بين حجبٍ وتغيّرِ تخطيط. */
+  if (!html) throw new Error("لم يصل جدول — " + tried.join(" · "));
   const rows = html.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || [];
   const cellsOf = r => (r.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/g) || [])
     .map(c => c.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim());
