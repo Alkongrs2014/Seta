@@ -459,6 +459,7 @@ function renderOnchain() {
     (Number.isFinite(o.rainbow)
       ? '<div class="kv"><span>قوسُ قزح</span><b style="color:' + o.rainbowC + '">' +
         o.rainbowT + "</b></div>" : "") +
+    (Number.isFinite(o.rainbowMid) ? kv("القيمة العادلة على المنحنى", money(o.rainbowMid)) : "") +
     '<p class="note">هذه مقاييسُ دورةٍ مداها شهورٌ وسنوات — تُقرأ في الأفق الأسبوعي وحده، ولا تقول شيئاً عن الساعات القادمة. ومضاعفُ ماير تحت ‎0.8‎ وبويل تحت ‎0.5‎ وقعا تاريخياً عند قيعانٍ كبرى، لكنّ أربع دوراتٍ ليست عيّنةً تُبنى عليها يقينيات.</p>'
   );
 }
