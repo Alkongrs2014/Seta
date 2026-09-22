@@ -23,13 +23,13 @@ var SPOT_HOSTS = ["https://api.binance.com", "https://data-api.binance.vision",
 var FUT_HOSTS  = ["https://fapi.binance.com"];
 var SYMBOL = "BTCUSDT";
 
-/* الفريمات الستة. `5m` و`1w` إضافتان على النسخة السابقة: بلا الأول لا
-   يوجد تحليلٌ لحظيّ حقيقي، وبلا الثاني لا يوجد أفقٌ أسبوعي — وكلاهما
-   مطلوبٌ صراحةً. */
-var TFS = ["5m", "15m", "1h", "4h", "1d", "1w"];
-var TF_LABEL = { "5m": "5 دقائق", "15m": "15 دقيقة", "1h": "ساعة",
+/* الفريمات السبعة. `3m` و`5m` و`1w` إضافاتٌ على النسخة الأولى: بلا
+   `3m` لا توجد قراءةٌ لحظيّة دقيقة، وبلا `5m` لا يوجد تحليلٌ لحظيّ
+   حقيقي، وبلا `1w` لا يوجد أفقٌ أسبوعي — وكلّها مطلوبةٌ صراحةً. */
+var TFS = ["3m", "5m", "15m", "1h", "4h", "1d", "1w"];
+var TF_LABEL = { "3m": "3 دقائق", "5m": "5 دقائق", "15m": "15 دقيقة", "1h": "ساعة",
                  "4h": "4 ساعات", "1d": "يومي", "1w": "أسبوعي" };
-var TF_MS = { "5m": 3e5, "15m": 9e5, "1h": 36e5, "4h": 144e5, "1d": 864e5, "1w": 6048e5 };
+var TF_MS = { "3m": 18e4, "5m": 3e5, "15m": 9e5, "1h": 36e5, "4h": 144e5, "1d": 864e5, "1w": 6048e5 };
 
 /* =====================================================================
    الآفاق الثلاثة — وهي بنيةُ الموقع كلّها لا تصنيفاً تجميلياً.
@@ -42,9 +42,13 @@ var TF_MS = { "5m": 3e5, "15m": 9e5, "1h": 36e5, "4h": 144e5, "1d": 864e5, "1w":
    نجاحَ الاستراتيجية — وهو تعريفُ «الأفق» عملياً: لحظيٌّ يُحكم عليه
    بعد ‎12‎ شمعة ‎15m‎ (ثلاث ساعات)، لا بعد أسبوع.
    ===================================================================== */
+/* اللحظي يقرأ 3/5/15 دقيقة — و`15m` بديل `10m` (غير متوفّرٍ في
+   بايننس أصلاً) بالاتفاق. `lead` هو `5m` لا `3m` ولا `15m`: الأول
+   ضجيجٌ زائد لهيكل السوق والأنماط، والثاني بطيءٌ لأفقٍ يُقاس بالساعة —
+   بينما `3m` يبقى وحده مسؤولاً عن توقيت إعادة الحساب (`recompute`). */
 var HORIZONS = [
-  { id: "scalp",  lbl: "لحظي",   icon: "⚡", tfs: ["5m", "15m", "1h"],
-    lead: "15m", bars: 12, span: "الساعات القليلة القادمة" },
+  { id: "scalp",  lbl: "لحظي",   icon: "⚡", tfs: ["3m", "5m", "15m"],
+    lead: "5m",  bars: 36, span: "الساعات القليلة القادمة" },
   { id: "daily",  lbl: "يومي",   icon: "📅", tfs: ["1h", "4h", "1d"],
     lead: "4h",  bars: 6,  span: "من يوم إلى خمسة أيام" },
   { id: "weekly", lbl: "أسبوعي", icon: "📆", tfs: ["4h", "1d", "1w"],
@@ -55,7 +59,7 @@ var HZ = {}; HORIZONS.forEach(function (h) { HZ[h.id] = h; });
 /* وزن الفريم داخل الأفق: الأبطأ أثقل. متوسّطٌ يومي يعاكس الاتجاه لا
    يُلغيه ارتدادُ خمس دقائق — وهي القاعدة التي يخرقها كل مؤشّرٍ يسوّي
    بين الفريمات. */
-var TF_WEIGHT = { "5m": 0.6, "15m": 1, "1h": 1.4, "4h": 1.8, "1d": 2.2, "1w": 2.6 };
+var TF_WEIGHT = { "3m": 0.45, "5m": 0.6, "15m": 1, "1h": 1.4, "4h": 1.8, "1d": 2.2, "1w": 2.6 };
 
 var $  = function (s) { return document.querySelector(s); };
 var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
@@ -185,6 +189,18 @@ function prevOf(a, back) {
 }
 function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
 
+/* الشموع المغلقة فقط — تُسقط الشمعة الأخيرة إن كانت لا تزال جارية.
+   بلا هذا، كل مؤشّرٍ يُبنى على شمعةٍ تتغيّر قيمتها كل عشرين ثانية —
+   وهو ما يجعل مستوى الإبطال يتذبذب بلا داعٍ في اللحظي. */
+function closedCandles(arr, tf) {
+  if (!arr || !arr.length) return arr;
+  var ms = TF_MS[tf];
+  if (!ms) return arr;
+  var lastC = arr[arr.length - 1];
+  if (lastC.t + ms > Date.now()) return arr.slice(0, -1);
+  return arr;
+}
+
 /* النسبة المئوية لموقع قيمةٍ داخل نافذةٍ تاريخية — الأساس لكل مقياسٍ
    «متطرّف أم عادي»: التمويل و`OI` و`Puell` كلها بلا معنى بالمطلق. */
 function pctRankOf(series, win) {
@@ -222,5 +238,5 @@ function corrOf(a, b) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { TFS, TF_LABEL, TF_MS, TF_WEIGHT, HORIZONS, HZ,
                      fmt, money, pct, compact, last, prevOf, clamp,
-                     pctRankOf, zOf, corrOf };
+                     pctRankOf, zOf, corrOf, closedCandles };
 }

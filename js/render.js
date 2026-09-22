@@ -92,7 +92,9 @@ function verdictCard(hz, cons, lv) {
         '<small>' + fmt(lv.invPct, 1) + '% · ' + lv.invSrc + '</small></div>' +
       '<div class="lvrow"><span>نطاق الهدف</span>' +
         '<b>' + money(lv.t1) + ' – ' + money(lv.t2) + '</b>' +
-        '<small>' + (lv.rr ? "عائد/مخاطرة ‎" + fmt(lv.rr, 1) : "") + '</small></div>' +
+        '<small>' + (lv.t1Src ? lv.t1Src + (lv.t2Src && lv.t2Src !== lv.t1Src ? " ↔ " + lv.t2Src : "") + " · " : "") +
+        (lv.rr ? "عائد/مخاطرة ‎" + fmt(lv.rr, 1) : "") + '</small></div>' +
+      (lv.warn ? '<div class="warn high" style="margin-top:6px">⚠︎ ' + lv.warn + '</div>' : '') +
     '</div>' : '') +
 
     (top.length ? '<div class="vreasons"><h4>يدعم الاتجاه</h4>' +
@@ -127,6 +129,47 @@ function renderVerdicts() {
         return '<div class="warn ' + c.level + '">⚠︎ ' + c.txt + '</div>';
       }).join("")
     : '<div class="warn ok">✓ الآفاق الثلاثة متّسقة — لا تعارض بين المدى القصير والطويل.</div>');
+}
+
+/* =====================================================================
+   بطاقة اللحظي عالية الثقة — تحت بطاقات القرار مباشرةً.
+
+   لا توصية تُفبرك: حين لا تكتمل الشروط تُعرض رسالةُ السبب صراحةً بدل
+   بطاقةٍ فارغة أو مضلِّلة. وحين تكتمل، تُعرض التوصية مع مصدر كل رقمٍ
+   وتنويهٍ صريح أنها «عالية الثقة» لا «مضمونة».
+   ===================================================================== */
+function renderScalpHC() {
+  var host = el("scalpHC");
+  if (!host) return;
+  var hc = state.scalpHC;
+  if (!hc) { host.innerHTML = ""; return; }
+
+  if (!hc.pass) {
+    host.innerHTML = '<div class="vcard hc-off">' +
+      '<b>⚡ توصية اللحظي عالية الثقة</b>' +
+      '<p class="note" style="margin:6px 0 0">لا توصية حالياً — ' + hc.reason + '</p>' +
+    '</div>';
+    return;
+  }
+
+  var up = hc.dir > 0;
+  host.innerHTML =
+    '<div class="vcard hc-on" data-dir="' + hc.dir + '">' +
+      '<div class="vhead"><b>⚡ توصية اللحظي عالية الثقة</b>' +
+        '<span style="color:' + (up ? "var(--up)" : "var(--dn)") + '">' + (up ? "شراء ▲" : "بيع ▼") + '</span></div>' +
+      '<div class="vlevels">' +
+        '<div class="lvrow"><span>الدخول (آخر إغلاقٍ مؤكَّد)</span><b>' + money(hc.entry) + '</b></div>' +
+        '<div class="lvrow inv"><span>مستوى الإبطال</span><b>' + money(hc.inv) + '</b>' +
+          '<small>' + fmt(hc.invPct, 1) + '% · ' + hc.invSrc + '</small></div>' +
+        '<div class="lvrow"><span>نطاق الهدف</span><b>' + money(hc.t1) + ' – ' + money(hc.t2) + '</b>' +
+          '<small>' + hc.t1Src + (hc.t2Src && hc.t2Src !== hc.t1Src ? " ↔ " + hc.t2Src : "") + '</small></div>' +
+        (hc.warn ? '<div class="warn high" style="margin-top:6px">⚠︎ ' + hc.warn + '</div>' : '') +
+      '</div>' +
+      '<div class="vreasons"><h4>مبنيّةٌ على</h4>' +
+        hc.rationale.map(function (r) { return '<div class="rrow"><i class="dot ' + (up ? "up" : "dn") + '"></i><span>' + r + '</span></div>'; }).join("") +
+      '</div>' +
+      '<p class="note">توصيةٌ عالية الثقة بناءً على تصفيةٍ صارمة — وليست ضماناً مطلقاً. راقب مستوى الإبطال.</p>' +
+    '</div>';
 }
 
 /* ---------------------------------------------------------------------

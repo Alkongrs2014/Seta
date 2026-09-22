@@ -612,6 +612,18 @@ function fibLevels(h, l, k) {
            golden: [b - d * 0.618, b - d * 0.65] };
 }
 
+/* اتجاهٌ قصير المدى قبل شمعة الفحص — ستّ شموعٍ سابقة لها، بلا الشمعة
+   نفسها. أساسُ التمييز بين مطرقة ورجلٍ مشنوق: نفس الشكل الهندسي
+   بالضبط، لكن معناه ينقلب بحسب ما سبقه. */
+function priorTrend(k, idx) {
+  var from = Math.max(0, idx - 6), a = k[from], b = k[idx - 1];
+  if (!a || !b) return 0;
+  var chg = (b.c - a.c) / a.c;
+  if (chg > 0.001) return 1;
+  if (chg < -0.001) return -1;
+  return 0;
+}
+
 /* أنماط الشموع. كلٌّ يُعيد جهةً أو `0` — والقاعدة المعروفة: النمط بلا
    مستوىً ضجيج، فالمستهلك يشترط التقاءه بمستوى قبل أن يعدّه إشارة. */
 function candlePattern(k) {
@@ -627,10 +639,20 @@ function candlePattern(k) {
     return { dir: 1, name: "ابتلاع شرائي", strong: true };
   if (c.c < c.o && p.c > p.o && c.c <= p.o && c.o >= p.c && body > pBody)
     return { dir: -1, name: "ابتلاع بيعي", strong: true };
-  if (dnW > body * 2 && upW < body * 0.6 && body / rng < 0.4)
-    return { dir: 1, name: "مطرقة", strong: false };
-  if (upW > body * 2 && dnW < body * 0.6 && body / rng < 0.4)
-    return { dir: -1, name: "شهاب", strong: false };
+  /* فتيلٌ سفلي طويل: مطرقةٌ صعودية إن سبقه هبوط، ورجلٌ مشنوقٌ تحذيري
+     إن سبقه صعود — الشكل واحد، والسياق هو الفارق. */
+  if (dnW > body * 2 && upW < body * 0.6 && body / rng < 0.4) {
+    var tD = priorTrend(k, n - 1);
+    return tD <= 0 ? { dir: 1, name: "مطرقة", strong: false }
+                   : { dir: -1, name: "الرجل المشنوق", strong: false };
+  }
+  /* فتيلٌ علوي طويل: شهابٌ هبوطي إن سبقه صعود، ومطرقةٌ مقلوبة (إشارةٌ
+     ضعيفة تحتاج تأكيد الشمعة التالية) إن سبقه هبوط. */
+  if (upW > body * 2 && dnW < body * 0.6 && body / rng < 0.4) {
+    var tU = priorTrend(k, n - 1);
+    return tU >= 0 ? { dir: -1, name: "شهاب", strong: false }
+                   : { dir: 1, name: "مطرقة مقلوبة", strong: false };
+  }
   if (body / rng < 0.1) return { dir: 0, name: "دوجي — تردّد", strong: false };
   if (p2.c < p2.o && Math.abs(p.c - p.o) / Math.max(1e-9, p.h - p.l) < 0.3 && c.c > c.o && c.c > (p2.o + p2.c) / 2)
     return { dir: 1, name: "نجمة الصباح", strong: true };
@@ -639,6 +661,82 @@ function candlePattern(k) {
   if (c.h < p.h && c.l > p.l) return { dir: 0, name: "شمعة داخلية — انضغاط", strong: false };
   if (body / rng > 0.85) return { dir: c.c > c.o ? 1 : -1, name: "ماروبوزو", strong: false };
   return null;
+}
+
+/* قمّتان متقاربتان (M) أو قاعان متقاربان (W) — أعيد استخدام `pivots`
+   الموجودة بدل بناء كاشفٍ منفصل. `confirmed` يشترط إغلاق شمعةٍ (مغلقة
+   دائماً هنا لأن `k` المُمرَّرة أصلاً مصفّاة) عبر خطّ الرقبة، و
+   `targetProjection` هو قياس الهدف الكلاسيكي: الرقبة ∓ ارتفاع النمط. */
+function doubleTopBottom(h, l, k, tolPct) {
+  var n = k.length;
+  if (n < 20) return null;
+  tolPct = tolPct || 0.6;
+  var p = pivots(h, l, 3);
+  var px = k[n - 1].c;
+
+  if (p.hi.length >= 2) {
+    var h2 = p.hi[p.hi.length - 1], h1 = p.hi[p.hi.length - 2];
+    if (h2.i > h1.i && Math.abs(h2.v - h1.v) / h1.v * 100 <= tolPct) {
+      var troughs = p.lo.filter(function (x) { return x.i > h1.i && x.i < h2.i; });
+      if (troughs.length) {
+        var neck = Math.min.apply(null, troughs.map(function (x) { return x.v; }));
+        var height = Math.max(h1.v, h2.v) - neck;
+        var confirmed = px < neck;
+        return { pattern: "M", dir: -1, neckline: neck,
+                 confirmed: confirmed, targetProjection: neck - height,
+                 note: "قمّتان متقاربتان (M) — سقفٌ عند " + Math.round(Math.max(h1.v, h2.v)) };
+      }
+    }
+  }
+  if (p.lo.length >= 2) {
+    var l2 = p.lo[p.lo.length - 1], l1 = p.lo[p.lo.length - 2];
+    if (l2.i > l1.i && Math.abs(l2.v - l1.v) / l1.v * 100 <= tolPct) {
+      var peaks = p.hi.filter(function (x) { return x.i > l1.i && x.i < l2.i; });
+      if (peaks.length) {
+        var neck2 = Math.max.apply(null, peaks.map(function (x) { return x.v; }));
+        var height2 = neck2 - Math.min(l1.v, l2.v);
+        var confirmed2 = px > neck2;
+        return { pattern: "W", dir: 1, neckline: neck2,
+                 confirmed: confirmed2, targetProjection: neck2 + height2,
+                 note: "قاعان متقاربان (W) — أرضيّةٌ عند " + Math.round(Math.min(l1.v, l2.v)) };
+      }
+    }
+  }
+  return null;
+}
+
+/* الكوب والعروة — محاولةُ أفضل جهد. تنبيهٌ صريح: هذا نمطٌ يُستخدم عادة
+   على الأطر اليومية لأنه يحتاج عشرات/مئات الشموع ليتشكّل بمعنى — وعلى
+   فريمات ٣-١٥ دقيقة يبقى ضعيف الموثوقية. لذا يُستخدم هنا كتأكيدٍ
+   إضافيٍّ اختياري فقط، لا كشرطٍ أساسي في أي بوّابة قرار. */
+function cupHandle(k, win) {
+  var n = k.length;
+  win = win || 80;
+  if (n < win + 10) return null;
+  var w = k.slice(-win);
+  var leftRim = w[0].h, rimI = 0;
+  for (var i = 0; i < Math.floor(win * 0.3); i++) if (w[i].h > leftRim) { leftRim = w[i].h; rimI = i; }
+  var bottomI = 0, bottom = w[0].l;
+  for (var j = 0; j < win; j++) if (w[j].l < bottom) { bottom = w[j].l; bottomI = j; }
+  if (bottomI < win * 0.25 || bottomI > win * 0.75) return null;   // ليس قاعاً وسطياً مستديراً
+  var rightRim = w[win - 1].h, rimJ = win - 1;
+  for (var m = Math.floor(win * 0.7); m < win; m++) if (w[m].h > rightRim) { rightRim = w[m].h; rimJ = m; }
+  if (rimJ <= bottomI) return null;
+  var rimAvg = (leftRim + rightRim) / 2;
+  if (Math.abs(leftRim - rightRim) / rimAvg > 0.03) return null;   // حافّتان متفاوتتان جداً
+  var depth = rimAvg - bottom;
+  if (depth / rimAvg < 0.02) return null;   // كوبٌ ضحلٌ جداً ليكون ذا معنى
+
+  /* العروة: انسحابٌ ضحل بعد الحافة اليمنى، لا يتجاوز نصف عمق الكوب. */
+  var handle = w.slice(rimJ);
+  if (handle.length < 3) return null;
+  var handleLow = Math.min.apply(null, handle.map(function (x) { return x.l; }));
+  if (rimAvg - handleLow > depth * 0.5) return null;
+
+  var px = k[n - 1].c;
+  return { pattern: "cup-handle", dir: 1, rim: rimAvg,
+           confirmed: px > rimAvg, targetProjection: rimAvg + depth,
+           note: "كوبٌ وعروة — موثوقيته منخفضة على فريماتٍ قصيرة" };
 }
 
 /* التذبذب التاريخي السنوي — لمقارنة الحاضر بعادة البتكوين نفسه. */
@@ -685,12 +783,18 @@ function computeAll(k) {
   var cd = cvd(k), vwD = anchoredVwap(k, "day"), vwW = anchoredVwap(k, "week");
   var ms = marketStructure(h, l, 3), vp = volumeProfile(k, 48, 240);
   var fib = fibLevels(h, l, 5), gaps = fvg(k, 120), sweep = liquiditySweep(k, 20);
-  var pat = candlePattern(k);
+  var pat = candlePattern(k), pat2 = doubleTopBottom(h, l, k), cup = cupHandle(k);
   var divR = divergence(h, l, r, 3, 60), divM = divergence(h, l, m.hist, 3, 60);
   var divO = divergence(h, l, ob, 3, 60);
 
   var px = c[c.length - 1];
   var A = last(a);
+  var vMed = (function () {
+    var w = v.slice(-50).slice().sort(function (x, y) { return x - y; });
+    return w.length ? w[Math.floor(w.length / 2)] : null;
+  })();
+  var vLast = v[v.length - 1];
+  var vRatio = (vMed && vMed > 0) ? vLast / vMed : null;
   return {
     k: k, c: c, h: h, l: l, v: v, o: o, px: px, n: k.length,
     e20: e20, e50: e50, e100: e100, e200: e200, s50: s50, s200: s200,
@@ -719,12 +823,12 @@ function computeAll(k) {
     vwapD: vwD, VWAPD: last(vwD.vwap), VWSD: last(vwD.sd),
     vwapW: vwW, VWAPW: last(vwW.vwap),
     ms: ms, vp: vp, fib: fib, fvg: gaps, sweep: sweep, pattern: pat,
+    pat2: pat2, cup: cup,
     divRsi: divR, divMacd: divM, divObv: divO,
-    volMed: (function () {
-      var w = v.slice(-50).slice().sort(function (x, y) { return x - y; });
-      return w.length ? w[Math.floor(w.length / 2)] : null;
-    })(),
-    VOL: v[v.length - 1]
+    volMed: vMed, VOL: vLast,
+    /* السيولة النسبية لآخر شمعة — أساس فلتر «الشموع الوهمية» في
+       اللحظي: حجمٌ دون ‎40%‎ من الوسيط لا يُعتمَد وحده تأكيداً. */
+    volRatio: vRatio, weakVol: vRatio !== null ? vRatio < 0.4 : null
   };
 }
 
@@ -734,5 +838,5 @@ if (typeof module !== "undefined" && module.exports) {
                      stoch, stochRsi, cci, williamsR, roc, mfi, obv, adLine, cvd,
                      anchoredVwap, pivots, marketStructure, fvg, liquiditySweep,
                      divergence, volumeProfile, pivotLevels, fibLevels,
-                     candlePattern, histVol, computeAll };
+                     candlePattern, doubleTopBottom, cupHandle, histVol, computeAll };
 }

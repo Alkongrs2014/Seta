@@ -24,14 +24,50 @@
 
 var busy = false, timers = [], side = "long";
 
+/* =====================================================================
+   بوّابة الثقة العالية للحظي.
+
+   لا توصية «مضمونة» — توصيةٌ تُعرض فقط حين تجتمع أربعة شروطٍ معاً: ثقةٌ
+   عالية في التوافق، سيولةٌ كافية على آخر شمعةٍ مغلقة، تأكيدٌ هيكلي
+   واحد على الأقل (نمط شمعة أو M/W مؤكَّد أو مسحُ سيولة) يوافق الاتجاه،
+   وتوافقُ الفريمات الثلاثة. غياب أيٍّ منها يُعلَن سببه لا يُخفى. */
+function scalpHighConfidence(cons, lead, all, lv) {
+  if (!cons || !cons.dir) return { pass: false, reason: "لا اتجاهٌ واضح بعد — الإجماع متعارض." };
+  if (cons.conf !== "high") return { pass: false, reason: "الثقة ليست عالية بعد (" + (cons.confT || "—") + ")." };
+  if (!lv) return { pass: false, reason: "المستويات غير محسوبة بعد." };
+  if (lead.weakVol) return { pass: false, reason: "سيولة آخر شمعةٍ مغلقة ضعيفة — لا تُعتمد للتأكيد." };
+
+  var rationale = [];
+  if (lead.pattern && lead.pattern.dir === cons.dir) rationale.push("نمط شمعة: " + lead.pattern.name);
+  if (lead.pat2 && lead.pat2.confirmed && lead.pat2.dir === cons.dir) rationale.push(lead.pat2.note);
+  if (lead.sweep && lead.sweep.dir === cons.dir) rationale.push("مسح سيولة: " + lead.sweep.note);
+  if (!rationale.length) return { pass: false, reason: "لا تأكيد نمط شمعة أو هيكلٍ يدعم الاتجاه." };
+
+  var conflict = HZ.scalp.tfs.some(function (tf) {
+    var a = all[tf];
+    if (!a) return false;
+    var tfDir = Number.isFinite(a.STdir) && a.STdir !== 0 ? a.STdir
+              : (Number.isFinite(a.px) && Number.isFinite(a.E50) ? (a.px > a.E50 ? 1 : a.px < a.E50 ? -1 : 0) : 0);
+    return tfDir !== 0 && tfDir !== cons.dir;
+  });
+  if (conflict) return { pass: false, reason: "الفريمات الثلاثة (3د/5د/15د) غير متوافقة على الاتجاه." };
+
+  return { pass: true, dir: cons.dir, entry: lead.px,
+           inv: lv.inv, invSrc: lv.invSrc, invPct: lv.invPct, warn: lv.warn,
+           t1: lv.t1, t1Src: lv.t1Src, t2: lv.t2, t2Src: lv.t2Src, rr: lv.rr,
+           rationale: rationale };
+}
+
 /* ---------------------------------------------------------------------
    إعادةُ الحساب — من الشموع إلى ثلاث بطاقات قرار.
    --------------------------------------------------------------------- */
 function recompute() {
+  /* شمعاتٌ مغلقة فقط: الشمعة الأخيرة الجارية تتغيّر قيمتها كل تحديث،
+     ومؤشّرٌ يُبنى عليها يتذبذب بلا داعٍ — خصوصاً في اللحظي السريع. */
   state.analysis = {};
   TFS.forEach(function (tf) {
     if (state.candles[tf]) {
-      try { state.analysis[tf] = computeAll(state.candles[tf]); } catch (e) {}
+      try { state.analysis[tf] = computeAll(closedCandles(state.candles[tf], tf)); } catch (e) {}
     }
   });
   if (!state.analysis["1h"]) return;
@@ -60,10 +96,30 @@ function recompute() {
   };
   state.ext = ext;
 
+  /* توقيت اللحظي: لا تُعاد كتابة توافقه ومستوياته إلا عند إغلاق شمعة
+     ‎3m‎ جديدة — لا كل عشرين ثانية كبقية الأفق. وحين يغيب فريم ‎3m‎ (فشل
+     شبكة مثلاً) يُعاد الحساب كل دورةٍ كالسابق بدل تجميد البطاقة أبداً. */
+  var closed3 = closedCandles(state.candles["3m"], "3m");
+  var lastClosedT = closed3 && closed3.length ? closed3[closed3.length - 1].t : null;
+  var scalpFresh = lastClosedT === null ? true : lastClosedT !== state.scalpLastClosedT;
+
+  var prevScalpRaw = state.stratRaw && state.stratRaw.scalp;
+  var prevScalpCons = state.cons && state.cons.scalp;
+  var prevScalpLevels = state.levels && state.levels.scalp;
+  var prevScalpHC = state.scalpHC;
+
   state.stratRaw = {};
   state.levels = {};
   var prevBands = load("bands", {});
   HORIZONS.forEach(function (hz) {
+    if (hz.id === "scalp" && !scalpFresh && prevScalpCons) {
+      state.stratRaw.scalp = prevScalpRaw;
+      state.cons.scalp = prevScalpCons;
+      state.levels.scalp = prevScalpLevels;
+      state.scalpHC = prevScalpHC;
+      prevBands.scalp = prevScalpCons.band;
+      return;
+    }
     var lead = state.analysis[hz.lead];
     if (!lead) return;
     var x = { a: lead, all: state.analysis, tfs: hz.tfs, hz: hz.id, ext: ext };
@@ -74,6 +130,10 @@ function recompute() {
     state.cons[hz.id] = cons;
     prevBands[hz.id] = cons.band;
     state.levels[hz.id] = levelsOf(cons, lead, hz);
+    if (hz.id === "scalp") {
+      state.scalpLastClosedT = lastClosedT;
+      state.scalpHC = scalpHighConfidence(cons, lead, state.analysis, state.levels.scalp);
+    }
   });
   save("bands", prevBands);
 
@@ -81,7 +141,7 @@ function recompute() {
   var shown = state.cons[state.stratHz || "daily"];
   state.chartLevels = state.levels[state.stratHz || "daily"];
 
-  renderVerdicts(); renderChanges(); renderToday(); renderIndicators();
+  renderVerdicts(); renderScalpHC(); renderChanges(); renderToday(); renderIndicators();
   renderLevels(); renderStrategies(); renderOnchain(); renderMacro();
   renderSources(); drawChart();
   checkAlerts(state.analysis["1h"].px);

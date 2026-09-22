@@ -199,11 +199,57 @@ function levelsOf(cons, a, hz) {
   }
 
   var mult = hz.id === "scalp" ? [1.5, 2.8] : hz.id === "daily" ? [2.5, 5] : [4, 8];
-  var t1 = d > 0 ? px + atrV * mult[0] : px - atrV * mult[0];
-  var t2 = d > 0 ? px + atrV * mult[1] : px - atrV * mult[1];
+  var atrT1 = d > 0 ? px + atrV * mult[0] : px - atrV * mult[0];
+  var atrT2 = d > 0 ? px + atrV * mult[1] : px - atrV * mult[1];
+
+  /* الهدف: الهيكل مصدرٌ أول — أقرب مستوى معاكسٍ فعلي من بنية السوق أو
+     نمط M/W مؤكَّد أو ملفّ الحجم — لا مضاعفات ATR على حركة الشمعة
+     الحالية. وATR يبقى بديلاً فقط حين يغيب الهيكل أو يكون بعيداً جداً،
+     بنفس منطق بديل الإبطال أعلاه. */
+  var cands = [];
+  if (a.ms) {
+    var opp = d > 0 ? a.ms.lastHigh : a.ms.lastLow;
+    if (Number.isFinite(opp) && (d > 0 ? opp > px : opp < px))
+      cands.push({ v: opp, src: d > 0 ? "آخر قمّةٍ محورية" : "آخر قاعٍ محوري" });
+  }
+  if (a.pat2 && a.pat2.confirmed && a.pat2.dir === d && Number.isFinite(a.pat2.targetProjection)) {
+    var tp = a.pat2.targetProjection;
+    if (d > 0 ? tp > px : tp < px)
+      cands.push({ v: tp, src: "إسقاط نمط " + a.pat2.pattern });
+  }
+  if (a.vp) {
+    [a.vp.vah, a.vp.val, a.vp.poc].forEach(function (v) {
+      if (Number.isFinite(v) && (d > 0 ? v > px : v < px))
+        cands.push({ v: v, src: "ملفّ الحجم" });
+    });
+  }
+  var capDist = atrV * mult[1] * 1.5;
+  cands = cands.filter(function (x) {
+    var dist = Math.abs(x.v - px);
+    return dist <= capDist && dist > atrV * 0.3;
+  }).sort(function (x, y) { return Math.abs(x.v - px) - Math.abs(y.v - px); });
+
+  var t1 = cands.length ? cands[0].v : atrT1;
+  var t1Src = cands.length ? cands[0].src : fmt(mult[0], 1) + " ضعف التذبذب";
+  var far = cands.filter(function (x) { return Math.abs(x.v - px) > Math.abs(t1 - px) * 1.05; })[0];
+  var t2 = far ? far.v : atrT2;
+  var t2Src = far ? far.src : fmt(mult[1], 1) + " ضعف التذبذب";
+
+  /* تحذيرٌ مبكر: السعر قريبٌ من الإبطال وآخر شمعةٍ مغلقة تُظهر نمطاً
+     معاكساً أو سيولةً ضعيفة — إنذارٌ قبل وقوع الإبطال لا بعده. */
+  var warn = null;
+  if (Math.abs(px - inv) <= atrV * 0.3) {
+    if (a.pattern && a.pattern.dir === -d) {
+      warn = "السعر يقترب من مستوى الإبطال وظهرت شمعة " + a.pattern.name +
+             " قرب المستوى — احتمال الإبطال يرتفع.";
+    } else if (a.weakVol) {
+      warn = "السعر يقترب من مستوى الإبطال والشمعة الأخيرة ضعيفة السيولة — قراءةٌ أقل موثوقية.";
+    }
+  }
+
   var risk = Math.abs(px - inv);
-  return { inv: inv, invSrc: invSrc, t1: t1, t2: t2,
-           invPct: risk / px * 100,
+  return { inv: inv, invSrc: invSrc, t1: t1, t1Src: t1Src, t2: t2, t2Src: t2Src,
+           invPct: risk / px * 100, warn: warn,
            rr: risk > 0 ? Math.abs(t1 - px) / risk : null };
 }
 
