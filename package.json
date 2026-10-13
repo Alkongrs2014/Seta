@@ -1,0 +1,13 @@
+{
+  "name": "btc-opportunities",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "منصة اكتشاف ومتابعة فرص Binance (Spot / Futures / Options) — بيانات عامة فقط، بلا تنفيذ.",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test test/*.test.js",
+    "test:live": "node test/live/live-check.mjs"
+  }
+}

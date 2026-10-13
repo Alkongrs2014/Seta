@@ -68,6 +68,9 @@ self.addEventListener("fetch", function (e) {
   /* كلُّ ما هو خارج الدومين بياناتُ سوقٍ حيّة — لا تُخزَّن ولا تُعترض. */
   if (url.origin !== self.location.origin) return;
 
+  /* واجهة المنصّة (/api) وصفحتها وملفّاتها: حيّة دائماً، لا تُعترض ولا تُخزَّن. */
+  if (url.pathname.indexOf("/api/") === 0 || url.pathname.indexOf("/platform") === 0) return;
+
   /* `macro.json` من الشبكة أوّلاً، والمخزَّن احتياطٌ عند الانقطاع. */
   if (url.pathname.indexOf("/data/") >= 0) {
     e.respondWith(
