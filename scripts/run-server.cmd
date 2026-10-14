@@ -2,6 +2,7 @@
 rem مشرف التشغيل: يُبقي خادم المنصة حيّاً ويعيد تشغيله عند أي توقّف.
 rem خروج برمز 3 = نسخةٌ أخرى تعمل بالفعل ← ننتهي دون تكرار.
 setlocal
+set BTC_SUPERVISED=1
 cd /d "%~dp0.."
 if not exist data\logs mkdir data\logs
 set "NODE=C:\Program Files\nodejs\node.exe"

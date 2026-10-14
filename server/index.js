@@ -14,7 +14,13 @@ try {
   if (old && old !== process.pid) {
     let alive = false;
     try { process.kill(old, 0); alive = true; } catch { /* ميتة */ }
-    if (alive) { console.error(`نسخةٌ تعمل بالفعل (pid ${old}) — خروج.`); process.exit(3); }
+    /* معرّف العملية قد يُعاد استعماله لعملية أخرى بعد إعادة التشغيل: نتأكّد
+       أن الخادم يردّ فعلاً على منفذه قبل اعتبار القفل صالحاً. */
+    if (alive) {
+      let live = false;
+      try { live = (await fetch(`http://${ENV.HOST}:${ENV.PORT}/api/health`, { signal: AbortSignal.timeout(2500) })).ok; } catch { /* لا ردّ */ }
+      if (live) { console.error(`نسخةٌ تعمل بالفعل (pid ${old}) — خروج.`); process.exit(3); }
+    }
   }
 } catch { /* لا قفل */ }
 fs.writeFileSync(LOCK, String(process.pid));
@@ -33,5 +39,7 @@ process.on("uncaughtException", e => engine.log(`uncaughtException: ${e?.stack |
 engine.start().then(() => engine.log("المحرّك يعمل")).catch(e => engine.log(`فشل بدء المحرّك: ${e.stack || e}`));
 
 const bye = () => { engine.log("إيقاف"); engine.stop(); setTimeout(() => process.exit(0), 200); };
-process.on("SIGINT", bye);
+/* تحت المشرف: Ctrl+C العارض (من نافذةٍ مشتركة) لا يوقف الخدمة؛ SIGTERM وحده يوقفها. */
+if (!process.env.BTC_SUPERVISED) process.on("SIGINT", bye);
+else process.on("SIGINT", () => engine.log("تجاهل SIGINT تحت المشرف"));
 process.on("SIGTERM", bye);
