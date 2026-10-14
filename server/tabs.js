@@ -28,50 +28,76 @@ function liqPart(o) {
   return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length * 100 : 50;
 }
 
-export function classify(o, S) {
+/* ---------- القوية ---------- */
+export function strongOf(o, S) {
   const A = S.activity;
-  const sc = o.score || 0, ex = o.exec_quality || 0;
-  const out = { strong: false, liquid: false, strongRank: 0, liquidRank: 0, reasons: [], liquidReasons: [], weak: [] };
-  const liq = liqPart(o);
-
-  /* القوية */
+  const sc = o.score || 0, ex = o.exec_quality || 0, liq = liqPart(o);
+  const out = { strong: false, strongRank: 0, reasons: [] };
   if (sc >= A.strongMinScore && ex >= A.strongMinExec && o.tier !== "D") {
     out.strong = true;
     out.strongRank = Math.round((0.5 * sc + 0.35 * ex + 0.15 * liq) * 10) / 10;
     out.reasons.push(`تقييم الإشارة ${sc.toFixed(0)}`, `جودة التنفيذ ${ex.toFixed(0)}`);
     if (liq >= 60) out.reasons.push("سيولة جيدة");
   }
+  return out;
+}
 
-  /* عالية السيولة والنشاط */
-  const mk = o.market;
-  const atrPct = o.activity?.atrPct ?? (o.signal?.atr15 && o.signal?.openPrice ? o.signal.atr15 / o.signal.openPrice * 100 : null);
-  const rvol = o.activity?.rvol15 ?? null;
+/* ---------- عالية السيولة والنشاط ----------
+   القيم الحيّة (o.live) تُفضَّل؛ وإن غابت نرجع لقيمة وقت الإصدار.
+   RVOL غير مسجّل = شرطٌ غير مستوفى (لا تُصنَّف الفرصة بلا بيانات). */
+export function liquidOf(o, S) {
+  const A = S.activity, mk = o.market, live = o.live || {}, c = o.contract || {};
+  const isOpt = mk === "OPTIONS";
   const checks = [];
-  if (mk === "OPTIONS") {
-    const c = o.contract || {};
-    checks.push([c.spreadPct != null && c.spreadPct <= A.optMaxSpreadPct, `سبريد العقد ${c.spreadPct?.toFixed(1)}%`, "سبريد العقد واسع"]);
-    checks.push([(c.openInterest || 0) >= A.optMinOpenInterest, `مراكز مفتوحة ${c.openInterest}`, "مراكز العقد قليلة"]);
-    checks.push([(c.volume24h || 0) >= A.optMinVolume24h, `حجم العقد 24س ${c.volume24h}`, "حجم العقد ضعيف"]);
+  const add = (key, ok, pass, fail) => checks.push({ key, ok: !!ok, text: ok ? pass : fail });
+
+  if (isOpt) {
+    const v = c.volume24h, oi = c.openInterest, sp = c.spreadPct;
+    add("volume", v != null && v >= A.optMinVolume24h, `حجم العقد 24س ${v}`, "حجم العقد ضعيف");
+    add("oi", oi != null && oi >= A.optMinOpenInterest, `مراكز مفتوحة ${oi}`, "مراكز العقد قليلة");
+    const spread = live.spreadPct ?? sp;
+    add("spread", spread != null && spread <= A.optMaxSpreadPct, `سبريد العقد ${spread?.toFixed(1)}%`, "سبريد العقد واسع");
   } else {
+    const v = live.volume24h ?? o.meta?.quoteVolume24h;
     const minV = mk === "FUTURES" ? A.futuresMinQuoteVolume24h : A.spotMinQuoteVolume24h;
     const maxS = mk === "FUTURES" ? A.futuresMaxSpreadPct : A.spotMaxSpreadPct;
-    const v = o.meta?.quoteVolume24h, sp = o.quote?.spreadPct;
-    checks.push([v != null && v >= minV, `حجم 24س ${fmtM(v || 0)}$`, "حجم التداول منخفض"]);
-    checks.push([sp != null && sp <= maxS, `سبريد منخفض ${sp?.toFixed(3)}%`, "سبريد مرتفع"]);
+    const sp = live.spreadPct ?? o.quote?.spreadPct;
+    add("volume", v != null && v >= minV, `حجم 24س ${fmtM(v || 0)}$`, "حجم التداول منخفض");
+    add("spread", sp != null && sp <= maxS, `سبريد منخفض ${sp?.toFixed(3)}%`, "سبريد مرتفع");
   }
-  if (atrPct != null) checks.push([atrPct >= (mk === "OPTIONS" ? A.optMinAtrPct : A.minAtrPct) && atrPct <= A.maxAtrPct, `ATR% مناسب ${atrPct.toFixed(2)}%`,
-    atrPct < (mk === "OPTIONS" ? A.optMinAtrPct : A.minAtrPct) ? "حركة سعرية ضعيفة (ATR% منخفض)" : "تذبذب مفرط (ATR% مرتفع)"]);
-  else checks.push([false, "", "ATR% غير متاح"]);
-  if (rvol != null) checks.push([rvol >= A.minRvol, `نشاط حديث RVOL ${rvol.toFixed(2)}×`, `نشاط حديث ضعيف (RVOL ${rvol.toFixed(2)}×)`]);
-  else checks.push([false, "", "RVOL غير مسجّل — لا تُصنَّف حتى تتوفر البيانات"]); /* لا يُخمَّن */
 
-  const bad = checks.filter(c => !c[0]);
-  out.weak = bad.map(c => c[2]);
-  if (!bad.length) {
-    out.liquid = true;
-    out.liquidReasons.push(...checks.map(c => c[1]));
-    const v = o.meta?.quoteVolume24h || 0;
-    out.liquidRank = Math.round((liq * 0.4 + Math.min(rvol ?? 1, 3) / 3 * 100 * 0.3 + Math.min(Math.log10(v + 1) / 9, 1) * 100 * 0.3) * 10) / 10;
+  const atrPct = live.atrPct ?? o.activity?.atrPct ?? (o.signal?.atr15 && o.signal?.openPrice ? o.signal.atr15 / o.signal.openPrice * 100 : null);
+  const minA = isOpt ? A.optMinAtrPct : A.minAtrPct;
+  add("atr", atrPct != null && atrPct >= minA && atrPct <= A.maxAtrPct,
+    `ATR% مناسب ${atrPct?.toFixed(2)}%`, atrPct == null ? "ATR% غير متاح" : atrPct < minA ? "حركة سعرية ضعيفة (ATR% منخفض)" : "تذبذب مفرط (ATR% مرتفع)");
+
+  const rvol = live.rvol15 ?? o.activity?.rvol15 ?? null;
+  add("rvol", rvol != null && rvol >= A.minRvol, `نشاط حديث RVOL ${rvol?.toFixed(2)}×`,
+    rvol == null ? "RVOL غير مسجّل — لا تُصنَّف حتى تتوفر البيانات" : `نشاط حديث ضعيف (RVOL ${rvol.toFixed(2)}×)`);
+
+  const passed = checks.filter(k => k.ok).length, total = checks.length;
+  const pass = passed === total;
+  const liq = liqPart(o);
+  const rv = Math.min(rvol ?? 1, 3) / 3 * 100, vv = Math.min(Math.log10((live.volume24h ?? o.meta?.quoteVolume24h ?? 0) + 1) / 9, 1) * 100;
+  return {
+    liquid: pass, passed, total, checks,
+    liquidRank: Math.round((liq * 0.4 + rv * 0.3 + vv * 0.3) * 10) / 10,
+    liquidReasons: checks.filter(k => k.ok).map(k => k.text),
+    weak: checks.filter(k => !k.ok).map(k => k.text)
+  };
+}
+
+export function classify(o, S) {
+  return { ...strongOf(o, S), ...liquidOf(o, S) };
+}
+
+/* تشخيص: كم فرصةً تفشل في كل شرط من مجموعة (نشطة عادةً) */
+export function liquidDiag(list, S) {
+  const failed = {}, passing = [];
+  for (const o of list) {
+    const t = o.tabInfo;
+    if (t.liquid) passing.push(o);
+    for (const k of t.checks) if (!k.ok) failed[k.key] = (failed[k.key] || 0) + 1;
   }
-  return out;
+  return { active: list.length, passing: passing.length, failed };
 }

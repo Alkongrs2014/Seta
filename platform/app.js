@@ -110,6 +110,7 @@
   function m(market) { return function () { return renderMarket(market); }; }
 
   function go() {
+    clearInterval(state.liveT);
     var r = (location.hash.replace(/^#\//, "") || "home").split("?")[0];
     if (!routes[r]) r = "home";
     state.route = r;
@@ -192,6 +193,8 @@
       liquid: "حجم 24س + سبريد منخفض + ATR% مناسب + RVOL حديث (حدودها في الإعدادات). فرزٌ فقط — لا تُصدر فرصاً جديدة." };
     $("#tabnote").textContent = TN[F.tab];
     var p = loadMarket(market, F);
+    clearInterval(state.liveT);
+    state.liveT = setInterval(function () { if (state.route === market.toLowerCase()) loadMarket(market, F); }, 60000);
     if (market === "SPOT") api(API + "/api/bearish").then(function (r) {
       $("#bear").innerHTML = "<h2>إشارات هبوط — معلومات فقط</h2>" + (r.items.length ?
         '<div class="tw"><table><tr><th>العملة</th><th>الوقت</th><th class="n">السعر</th><th class="n">التقييم</th></tr>' +
@@ -232,9 +235,19 @@
     return api(API + "/api/opps?" + q).then(function (r) {
       var el = $("#mlist"); if (!el) return;
       var lbl = F.st === "open" ? "نشطة حالياً" : F.st === "closed" ? "منتهية" : "في السجل التاريخي";
-      el.innerHTML = '<div class="bar"><b>' + r.items.length + " فرصة " + lbl + "</b></div>" + (r.items.length ? '<div class="list">' + r.items.map(oppRow).join("") + "</div>"
-        : F.tab !== "latest" ? '<div class="mutBox">لا فرص تطابق شروط هذا التبويب حالياً — تظل كل الفرص ظاهرةً في «أحدث الفرص».</div>'
-        : '<div class="mutBox">لا فرص مطابقة. المحرّك يُقيّم كل افتتاح شمعة 15 دقيقة، والفرصة نادرة بطبيعة الشرط.</div>');
+      var list = r.items.length ? '<div class="list">' + r.items.map(oppRow).join("") + "</div>"
+        : F.tab !== "latest" ? '<div class="mutBox">لا فرص تطابق شروط هذا التبويب الآن — تظل كل الفرص ظاهرةً في «أحدث الفرص».</div>'
+        : '<div class="mutBox">لا فرص مطابقة. المحرّك يُقيّم كل افتتاح شمعة 15 دقيقة، والفرصة نادرة بطبيعة الشرط.</div>';
+      var extra = "";
+      if (F.tab === "liquid" && r.diag) {
+        var n = { volume: "الحجم", spread: "السبريد", atr: "ATR%", rvol: "RVOL", oi: "المراكز" }, f = r.diag.failed || {};
+        extra = '<div class="card"><h2>شروط السيولة والنشاط</h2><p class="mut">نشطة ' + r.diag.active + " · مطابقة " + r.diag.passing +
+          (Object.keys(f).length ? " · فشلت في: " + Object.keys(f).map(function (k) { return (n[k] || k) + " (" + f[k] + ")"; }).join(" · ") : "") +
+          '</p><p class="note">القيم حيّة من بيانات Binance (تُحدَّث كل دقيقة). الحدود قابلة للتعديل من الإعدادات.</p></div>';
+        if (r.near && r.near.length) extra += '<div class="card"><h2>الأقرب للشروط (ليست عالية السيولة)</h2><div class="list">' +
+          r.near.map(function (o) { return oppRow(o) + '<div class="why miss">' + o.tabInfo.weak.map(function (x) { return "<span>" + esc(x) + "</span>"; }).join("") + "</div>"; }).join("") + "</div></div>";
+      }
+      el.innerHTML = '<div class="bar"><b>' + r.items.length + " فرصة " + lbl + "</b></div>" + list + extra;
       bindRows();
     });
   }

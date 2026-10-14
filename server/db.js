@@ -54,6 +54,7 @@ export function openDb(file = ENV.DB_PATH) {
     );
     CREATE INDEX IF NOT EXISTS ix_ev_opp ON opp_events(opp_id);
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS activity_now (opp_id INTEGER PRIMARY KEY, computed_at INTEGER NOT NULL, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS eval_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, market TEXT, symbol TEXT,
@@ -123,6 +124,19 @@ export function updateOpportunity(id, fields) {
 }
 
 const OPEN_STATUSES = ["new", "active", "tp1", "tp2"];
+/* النشاط الحيّ للفرص النشطة: منفصلٌ عن بيانات الفرصة التاريخية */
+export function saveLiveActivity(rows) {
+  if (!rows.length) return;
+  const up = db.prepare("INSERT INTO activity_now(opp_id,computed_at,data) VALUES(?,?,?) ON CONFLICT(opp_id) DO UPDATE SET computed_at=excluded.computed_at, data=excluded.data");
+  db.exec("BEGIN");
+  try { for (const [id, at, data] of rows) up.run(id, at, data); db.exec("COMMIT"); }
+  catch (e) { db.exec("ROLLBACK"); throw e; }
+}
+export function pruneLiveActivity(keepIds) {
+  if (!keepIds.length) return db.exec("DELETE FROM activity_now");
+  db.prepare(`DELETE FROM activity_now WHERE opp_id NOT IN (${keepIds.map(() => "?").join(",")})`).run(...keepIds);
+}
+
 export function listOpen() {
   return db.prepare(
     `SELECT * FROM opportunities WHERE status IN (${OPEN_STATUSES.map(() => "?").join(",")}) ORDER BY issued_at DESC`

@@ -99,3 +99,4 @@ canvas{width:100%;height:340px;display:block;background:var(--card);border-radiu
 .tab.on{color:var(--text,#fff);border-color:var(--up);background:var(--line)}
 .why{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
 .why span{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--line);color:var(--dim)}
+.why.miss span{background:transparent;border:1px solid var(--dn);color:var(--dn)}

@@ -13,6 +13,7 @@ import * as DB from "./db.js";
 import { bget, fetchKlines, sourceHealth } from "./binance.js";
 import { MarketFeed } from "./feed.js";
 import { computeActivity } from "./tabs.js";
+import { rvolNow, atrPctNow, spreadOf } from "./activity.js";
 import { evaluateCandleOpen, buildPlan, smaAt, M15, utcDayStart } from "./strategy.js";
 
 const sessionExpiry = (ts, n) => utcDayStart(ts) + ((n || 5) + 1) * 86400e3;
@@ -35,6 +36,7 @@ export class Engine {
     this.startedAt = Date.now();
     this.counters = { signals: { SPOT: 0, FUTURES: 0, OPTIONS: 0 }, dupes: 0, noOption: 0, errors: 0, lastSignalAt: null };
     this._settings = null;
+    this.live = new Map();
     this.logs = [];
   }
 
@@ -97,6 +99,8 @@ export class Engine {
 
     this._timers = [
       setInterval(() => this._sweep(), 20e3),
+      setInterval(() => this._refreshLive().catch(e => this.log(`[activity] ${e.message}`)), 60e3),
+      setTimeout(() => this._refreshLive().catch(() => {}), 8e3),
       setInterval(() => this._pollOptions().catch(e => this.log(`[options] متابعة: ${e.message}`)), 15e3),
       setInterval(() => this._broadcast({ type: "health", health: this.health() }), 10e3),
       setInterval(() => { try { DB.pruneEvalLog(); } catch { /* */ } }, 6 * 3600e3),
@@ -474,6 +478,36 @@ export class Engine {
   }
 
   /* مسحٌ دوري: الانتهاء لا يحتاج تحديث سعر، ويُحدَّث last_check للاسترداد. */
+  /* نشاط الفرص النشطة الحيّ (كل دقيقة): من شموع الذاكرة + bookTicker لكل سوق؛ بلا طلبات لكل فرصة */
+  async _refreshLive() {
+    const S = this.settings, open = DB.listOpen(), now = this.now();
+    const books = {};
+    for (const mk of ["spot", "futures"]) {
+      if (!open.some(o => o.market === mk.toUpperCase())) continue;
+      try {
+        const arr = await bget(mk, mk === "spot" ? "/api/v3/ticker/bookTicker" : "/fapi/v1/ticker/bookTicker", {}, { weight: 2, retries: 0, timeoutMs: 8000 });
+        books[mk] = new Map(arr.map(b => [b.symbol, spreadOf(+b.bidPrice, +b.askPrice)]));
+      } catch { /* يبقى سبريد وقت الإصدار */ }
+    }
+    const rows = [], next = new Map();
+    for (const o of open) {
+      const mk = o.market === "OPTIONS" ? this._optionSource(o.symbol) : o.market.toLowerCase();
+      const feed = this.feeds[mk];
+      if (!feed) continue;
+      const closed = feed.getCandles(o.symbol);
+      const live = {
+        at: now, volume24h: feed.meta.get(o.symbol)?.quoteVolume24h ?? null,
+        spreadPct: o.market === "OPTIONS" ? null : (books[mk]?.get(o.symbol) ?? null),
+        rvol15: rvolNow(closed, S.activity.rvolLookback), atrPct: atrPctNow(closed)
+      };
+      next.set(o.id, live);
+      rows.push([o.id, now, JSON.stringify(live)]);
+    }
+    DB.saveLiveActivity(rows);
+    DB.pruneLiveActivity(open.map(o => o.id));
+    this.live = next;
+  }
+
   _sweep() {
     const now = this.now();
     for (const { opp, st } of [...this.tracks.values()]) {
@@ -536,7 +570,7 @@ export class Engine {
   publicOpp(o) {
     const { track, score: scoreDetail, ...d } = o.data;
     return {
-      scoreDetail,
+      scoreDetail, live: this.live?.get(o.id) || null,
       id: o.id, market: o.market, symbol: o.symbol, instrument: o.instrument, side: o.side,
       candle_open_ts: o.candle_open_ts, status: o.status, score: o.score, exec_quality: o.exec_quality,
       hour_confirmed: o.hour_confirmed, entry: o.entry, stop: o.stop, tp1: o.tp1, tp2: o.tp2, tp3: o.tp3,
