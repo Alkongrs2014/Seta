@@ -2,6 +2,14 @@
    كل الأزمنة تصل UTC بالميلّي ثانية وتُعرض بتوقيت الرياض. */
 (function () {
   "use strict";
+  /* عنوان خادم البيانات: محلياً نفس الأصل؛ على GitHub Pages من platform/config.js (يكتبه scripts/publish-tunnel.mjs) أو ?api=… */
+  var API = "";
+  try {
+    var qa = new URLSearchParams(location.search).get("api");
+    if (qa) localStorage.setItem("apiBase", qa.replace(/\/+$/, ""));
+    var onPages = location.hostname.indexOf("github.io") >= 0;
+    API = (localStorage.getItem("apiBase") || (onPages && window.PLATFORM_API) || "").replace(/\/+$/, "");
+  } catch (e) { API = (window.PLATFORM_API || ""); }
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var view = $("#view");
   var state = { route: "home", opps: new Map(), filters: {}, health: null, sse: null, openId: null, sseAt: 0 };
@@ -92,7 +100,7 @@
 
   /* ---------- الرئيسية ---------- */
   function renderHome() {
-    return api("/api/overview").then(function (o) {
+    return api(API + "/api/overview").then(function (o) {
       var b = o.btc, t = b.trend;
       var tcls = t ? (t.state === "صاعد" ? "up" : t.state === "هابط" ? "dn" : "neu") : "mut";
       var h = '<div class="grid g4">' +
@@ -147,13 +155,13 @@
       });
     });
     var p = loadMarket(market, F);
-    if (market === "SPOT") api("/api/bearish").then(function (r) {
+    if (market === "SPOT") api(API + "/api/bearish").then(function (r) {
       $("#bear").innerHTML = "<h2>إشارات هبوط — معلومات فقط</h2>" + (r.items.length ?
         '<div class="tw"><table><tr><th>العملة</th><th>الوقت</th><th class="n">السعر</th><th class="n">التقييم</th></tr>' +
         r.items.slice(0, 30).map(function (i) { return "<tr><td>" + esc(i.symbol) + "</td><td>" + T(i.ts) + '</td><td class="n">' + P(i.price) + '</td><td class="n">' + N(i.score, 0) + "</td></tr>"; }).join("") +
         '</table></div><p class="note">لا يوجد بيع على المكشوف في Spot؛ هذه قراءةٌ للحذر لا فرصة.</p>' : '<div class="mutBox">لا إشارات هبوط منذ التشغيل.</div>');
     }).catch(function () {});
-    if (market === "OPTIONS") api("/api/misses").then(function (r) {
+    if (market === "OPTIONS") api(API + "/api/misses").then(function (r) {
       $("#miss").innerHTML = "<h2>إشارات بلا عقدٍ مناسب (لم تصدر فرصة)</h2>" + (r.items.length ?
         '<div class="tw"><table><tr><th>الأصل</th><th>الاتجاه</th><th>الوقت</th><th>سبب الرفض (عدد العقود)</th></tr>' +
         r.items.slice(0, 20).map(function (i) { return "<tr><td>" + esc(i.symbol) + "</td><td>" + (i.side === "BUY" ? "CALL" : "PUT") + "</td><td>" + T(i.ts) + "</td><td class='mut'>" +
@@ -182,7 +190,7 @@
     if (F.hour) q += "&hour=" + F.hour;
     if (F.st === "open") q += "&open=1"; if (F.st === "closed") q += "&closed=1";
     if (F.win !== "0") q += "&since=" + (Date.now() - Number(F.win));
-    return api("/api/opps?" + q).then(function (r) {
+    return api(API + "/api/opps?" + q).then(function (r) {
       var el = $("#mlist"); if (!el) return;
       el.innerHTML = r.items.length ? '<div class="list">' + r.items.map(oppRow).join("") + "</div>"
         : '<div class="mutBox">لا فرص مطابقة. المحرّك يُقيّم كل افتتاح شمعة 15 دقيقة، والفرصة نادرة بطبيعة الشرط.</div>';
@@ -191,14 +199,14 @@
   }
 
   function renderActive() {
-    return api("/api/opps?open=1&limit=500&sort=issued_at").then(function (r) {
+    return api(API + "/api/opps?open=1&limit=500&sort=issued_at").then(function (r) {
       view.innerHTML = '<div class="bar"><b>' + r.items.length + ' فرصة مفتوحة</b></div><div class="list">' +
         (r.items.length ? r.items.map(oppRow).join("") : '<div class="mutBox">لا فرص نشطة.</div>') + "</div>";
       bindRows();
     });
   }
   function renderClosed() {
-    return api("/api/opps?closed=1&limit=300&sort=closed_at").then(function (r) {
+    return api(API + "/api/opps?closed=1&limit=300&sort=closed_at").then(function (r) {
       view.innerHTML = '<div class="bar"><b>' + r.items.length + ' نتيجة</b></div><div class="list">' +
         (r.items.length ? r.items.map(oppRow).join("") : '<div class="mutBox">لم تنتهِ فرصٌ بعد.</div>') + "</div>";
       bindRows();
@@ -217,7 +225,7 @@
         '</td><td class="n dn">' + N(a.avgLossPct, 2) + '</td><td class="n">' + N(a.avgR, 2) + '</td><td class="n">' + N(a.totalR, 1) + '</td><td class="n">' + (a.profitFactor == null ? "∞" : N(a.profitFactor, 2)) + "</td></tr>"; }).join("") + "</table></div></div>";
   }
   function renderStats() {
-    return api("/api/stats").then(function (s) {
+    return api(API + "/api/stats").then(function (s) {
       var o = s.overall;
       var h = '<div class="grid g4">' + kpi("الفرص المنتهية", String(o.n || 0), "مفتوحة الآن: " + s.open) +
         kpi("نسبة الفوز", o.n ? N(o.winRate, 1) + "%" : "—", o.n ? "خسارة " + N(o.lossRate, 1) + "%" : "") +
@@ -238,7 +246,7 @@
 
   /* ---------- الإعدادات والصحّة ---------- */
   function renderSettings() {
-    return Promise.all([api("/api/settings"), api("/api/health")]).then(function (r) {
+    return Promise.all([api(API + "/api/settings"), api(API + "/api/health")]).then(function (r) {
       var S = r[0], H = r[1];
       var fields = [
         ["spot.enabled", "تفعيل Spot", "b"], ["spot.minQuoteVolume24h", "أدنى حجم 24س — Spot (USDT)"], ["spot.maxSpreadPct", "أقصى سبريد — Spot %"],
@@ -281,11 +289,11 @@
           var p = el.dataset.k.split("."), v = el.dataset.t === "b" ? el.checked : Number(el.value);
           if (p.length === 1) patch[p[0]] = v; else { patch[p[0]] = patch[p[0]] || {}; patch[p[0]][p[1]] = v; }
         });
-        fetch("/api/settings", { method: "PUT", headers: Object.assign({ "content-type": "application/json" }, auth()), body: JSON.stringify(patch) })
+        fetch(API + "/api/settings", { method: "PUT", headers: Object.assign({ "content-type": "application/json" }, auth()), body: JSON.stringify(patch) })
           .then(function (x) { toast(x.ok ? "تم الحفظ" : "رُفض: " + x.status); });
       };
       $("#rs").onclick = function () {
-        fetch("/api/settings/reset", { method: "POST", headers: auth() }).then(function (x) { toast(x.ok ? "استُعيدت الإعدادات" : "رُفض: " + x.status); if (x.ok) go(); });
+        fetch(API + "/api/settings/reset", { method: "POST", headers: auth() }).then(function (x) { toast(x.ok ? "استُعيدت الإعدادات" : "رُفض: " + x.status); if (x.ok) go(); });
       };
     });
   }
@@ -297,11 +305,11 @@
     modal.hidden = false; document.body.style.overflow = "hidden";
     sheet.innerHTML = '<div class="mutBox">جارٍ التحميل…</div>';
     modal.onclick = function (e) { if (e.target === modal) closeDetail(); };
-    api("/api/opps/" + id).then(function (o) {
-      fetch("/api/opps/" + id + "/seen", { method: "POST" }).catch(function () {});
+    api(API + "/api/opps/" + id).then(function (o) {
+      fetch(API + "/api/opps/" + id + "/seen", { method: "POST" }).catch(function () {});
       sheet.innerHTML = detailHtml(o);
       $("#xBtn").onclick = closeDetail;
-      api("/api/opps/" + id + "/chart").then(function (c) { drawChart($("#cv"), c, o); }).catch(function (e) {
+      api(API + "/api/opps/" + id + "/chart").then(function (c) { drawChart($("#cv"), c, o); }).catch(function (e) {
         $("#cv").insertAdjacentHTML("afterend", '<p class="mut">تعذّر تحميل الرسم: ' + esc(e.message) + "</p>");
       });
     }).catch(function (e) { sheet.innerHTML = '<div class="mutBox">' + esc(e.message) + "</div>"; });
@@ -450,7 +458,7 @@
   /* ---------- البثّ اللحظي ---------- */
   function connect() {
     var dot = $("#liveDot");
-    var es = new EventSource("/api/stream");
+    var es = new EventSource(API + "/api/stream");
     es.onopen = function () { dot.className = "live on"; };
     es.onerror = function () { dot.className = "live bad"; };
     es.onmessage = function (ev) {
@@ -458,7 +466,7 @@
       state.sseAt = Date.now();
       if (m.type === "opp_new") {
         toast("فرصة جديدة: " + m.opp.symbol + " " + dirLabel(m.opp));
-        if (!document.hidden) fetch("/api/opps/" + m.opp.id + "/seen", { method: "POST" }).catch(function () {});
+        if (!document.hidden) fetch(API + "/api/opps/" + m.opp.id + "/seen", { method: "POST" }).catch(function () {});
         if (["home", "spot", "futures", "options", "active"].indexOf(state.route) >= 0) go();
       } else if (m.type === "opp_update") {
         if (state.route === "active" || state.route === "closed" || state.route === "home") { clearTimeout(loadTimer); loadTimer = setTimeout(go, 800); }

@@ -84,11 +84,28 @@ async function buildChart(engine, opp) {
   return v;
 }
 
+const CORS_ORIGINS = ["https://alkongrs2014.github.io", "http://127.0.0.1:8787", "http://localhost:8787"];
+
 export function startHttp(engine) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://x");
     const p = url.pathname;
     try {
+      if (p.startsWith("/api/")) {
+        const origin = req.headers.origin;
+        if (origin && CORS_ORIGINS.includes(origin)) {
+          res.setHeader("Access-Control-Allow-Origin", origin);
+          res.setHeader("Vary", "Origin");
+          res.setHeader("Access-Control-Allow-Headers", "content-type,x-admin-token");
+          res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+        }
+        if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
+        /* الوصول عبر النفق (ترويسات Cloudflare): قراءةٌ فقط، ولا سجلّات ولا تعديل إعدادات. */
+        const remote = !!(req.headers["cf-connecting-ip"] || req.headers["x-forwarded-for"]);
+        const seen = /^\/api\/opps\/[^/]+\/seen$/.test(p);
+        if (remote && ((req.method !== "GET" && !seen) || p === "/api/logs"))
+          return send(res, 403, { error: "read-only remote access" });
+      }
       if (p.startsWith("/api/")) return await api(engine, req, res, url, p);
       return serveStatic(req, res, p);
     } catch (e) {
