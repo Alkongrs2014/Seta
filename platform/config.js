@@ -1,2 +1,2 @@
 /* يكتبه scripts/publish-tunnel.mjs */
-window.PLATFORM_API = "https://bloggers-catch-acer-adjustment.trycloudflare.com";
+window.PLATFORM_API = "https://mount-peak-diverse-blackjack.trycloudflare.com";
