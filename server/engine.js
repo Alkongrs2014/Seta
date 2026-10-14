@@ -12,7 +12,9 @@ import { ENV } from "./config.js";
 import * as DB from "./db.js";
 import { bget, fetchKlines, sourceHealth } from "./binance.js";
 import { MarketFeed } from "./feed.js";
-import { evaluateCandleOpen, buildPlan, smaAt, M15 } from "./strategy.js";
+import { evaluateCandleOpen, buildPlan, smaAt, M15, utcDayStart } from "./strategy.js";
+
+const sessionExpiry = (ts, n) => utcDayStart(ts) + ((n || 5) + 1) * 86400e3;
 import { execQualityLinear, tierOf, TIER_LABEL, leverageTable, optionExecQuality } from "./quality.js";
 import { initTrack, applyUpdate, summarize, CLOSED } from "./tracker.js";
 import { buildReport, reportMarkdown } from "./report.js";
@@ -298,8 +300,9 @@ export class Engine {
     const lastTick = feed.getLast(ev.symbol);
     const haveQuote = quote.bid > 0 && quote.ask > 0;
     const entry = haveQuote ? (side === "BUY" ? quote.ask : quote.bid) : (lastTick ? lastTick.c : r.openPrice);
-    const plan = buildPlan({ side, entry, atr15: r.atr15, cfg: S.plan });
+    const plan = r.atr15 ? buildPlan({ side, entry, atr15: r.atr15, cfg: S.plan, ...r.planCtx }) : null;
     if (!r.atr15) { DB.logEval(this.now(), mk, ev.symbol, ev.openTime, "no_atr"); return; }
+    if (!plan) { DB.logEval(this.now(), mk, ev.symbol, ev.openTime, "no_stop_ref"); return; }
 
     const oiUsd = quote.oiContracts && (quote.markPrice || entry) ? quote.oiContracts * (quote.markPrice || entry) : null;
     const limits = S[mk];
@@ -317,7 +320,7 @@ export class Engine {
     };
     const feePct = market === "FUTURES" ? S.costs.futuresFeePct : S.costs.spotFeePct;
     const halfSpreadPct = (quote.spreadPct || 0) / 2;
-    const expiresAt = issuedAt + S.plan.expiryMinutes * 60e3;
+    const expiresAt = sessionExpiry(issuedAt, S.plan.expirySessions);
 
     const st = initTrack({
       side, entry, stop: plan.stop, targets: plan.targets, issuedAt, expiresAt,
@@ -389,7 +392,8 @@ export class Engine {
     const feed = this.feeds[this._optionSource(symbol)] || this.feeds.spot || this.feeds.futures;
     const lastTick = feed?.getLast(symbol);
     const uEntry = lastTick ? lastTick.c : r.openPrice;
-    const uPlan = buildPlan({ side: r.side, entry: uEntry, atr15: r.atr15, cfg: S.plan });
+    const uPlan = buildPlan({ side: r.side, entry: uEntry, atr15: r.atr15, cfg: S.plan, ...r.planCtx });
+    if (!uPlan) { DB.logEval(now, "options", symbol, ev.openTime, "no_stop_ref"); return; }
     const oplan = optionPlan({ contract: c, underlyingEntry: uEntry, underlyingTargets: uPlan.targets, settings: S.options });
 
     const dteHours = c.dteH;
@@ -400,7 +404,7 @@ export class Engine {
     const tier = tierOf(r.score.total, execQ.score, S.minExecQuality);
 
     const issuedAt = this.now();
-    const expiresAt = Math.min(issuedAt + S.plan.expiryMinutes * 60e3, c.expiry - 2 * 3600e3);
+    const expiresAt = Math.min(sessionExpiry(issuedAt, S.plan.expirySessions), c.expiry - 2 * 3600e3);
     const feeUsdPct = Math.min(0.0003 * uEntry * (c.unit || 1) / c.ask * 100, 12.5);
     /* الدخول عند Ask والمتابعة/الخروج عند Bid: السبريد كاملاً مدفوعٌ في السعرين،
        فلا يُضاف نصف سبريدٍ ثانٍ في التكلفة (كان يُحتسب مرّتين). */

@@ -42,8 +42,11 @@ export const DEFAULT_SETTINGS = {
              minDteHours: 20, maxDteDays: 45, maxSpreadPct: 12, minOpenInterest: 1, minVolume24h: 0,
              stopLossPct: 35, holdHoursModel: 6 },
   /* الخطة */
-  plan: { stopAtr: 1.5, targetsR: [1, 2, 3], minStopPct: 0.004, expiryMinutes: 720,
-          tpSplit: [0.5, 0.3, 0.2], breakevenAfterTp1: true, cancelOnSmaClose: true },
+  plan: { stopAtrMargin: 0.1, targetsR: [1, 2, 3], minTargetR: 1, maxTargets: 3,
+          /* الجلسة = يوم UTC (السوق 24/7)؛ انتهاء الفرصة بعد 5 جلسات كاملة تلي يوم الإصدار */
+          expirySessions: 5,
+          /* غير معتمد من الاستراتيجية: تقسيمٌ متساوٍ لغرض الحساب فقط، ويظهر كذلك في الواجهة */
+          tpSplit: [1 / 3, 1 / 3, 1 / 3], breakevenAfterTp1: true, cancelOnSmaClose: false },
   /* التقييم */
   weights: { sma: 60, yesterday: 20, vwap: 10, week: 5, trend: 5, tf15: 40, tf1h: 20, indicatorShare: 40 },
   /* نموذج التكلفة المعلن */

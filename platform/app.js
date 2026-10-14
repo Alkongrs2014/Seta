@@ -177,7 +177,7 @@
     return '<select id="' + id + '">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (String(cur) === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select>";
   }
   function marketNote(m) {
-    if (m === "SPOT") return "فرص شراء فقط. الدخول = سعر الطلب لحظة الإصدار. الأهداف 1R/2R/3R والوقف 1.5×ATR(15د).";
+    if (m === "SPOT") return "فرص شراء فقط. الدخول = سعر الطلب لحظة الإصدار. الوقف عند آخر قاع ساعة مؤكَّد − 0.1×ATR(15د)، والأهداف مستويات سعرية حقيقية (≥1R) وتُستكمل بمضاعفات R.";
     if (m === "FUTURES") return "USDT-M الدائمة. الرافعة تُعرض أثرها على الهامش والتصفية ولا تؤثّر في التقييم. التمويل والعقود المفتوحة من Binance مباشرة.";
     return "لا تصدر فرصةٌ إن لم يوجد عقدٌ مناسب. أهداف العلاوة تقديرية؛ المتابعة الفعلية على سعر العقد (العرض). أقصى خسارةٍ = العلاوة.";
   }
@@ -254,7 +254,7 @@
         ["options.enabled", "تفعيل Options", "b"], ["options.deltaMin", "دلتا الأدنى"], ["options.deltaMax", "دلتا الأعلى"], ["options.deltaTarget", "دلتا المستهدفة"],
         ["options.minDteHours", "أدنى مدّةٍ لانتهاء العقد (ساعة)"], ["options.maxDteDays", "أقصى مدّة (يوم)"], ["options.maxSpreadPct", "أقصى سبريد للعقد %"],
         ["options.minOpenInterest", "أدنى مراكز مفتوحة"], ["options.stopLossPct", "وقف العقد (% من العلاوة)"],
-        ["plan.stopAtr", "الوقف × ATR"], ["plan.expiryMinutes", "صلاحية الفرصة (دقيقة)"], ["plan.breakevenAfterTp1", "الوقف إلى الدخول بعد الهدف 1", "b"],
+        ["plan.stopAtrMargin", "هامش الوقف × ATR(15د)"], ["plan.expirySessions", "صلاحية الفرصة (جلسات UTC)"], ["plan.breakevenAfterTp1", "الوقف إلى الدخول بعد الهدف 1", "b"],
         ["plan.cancelOnSmaClose", "إلغاء عند إغلاق 15د عكس SMA200", "b"],
         ["weights.sma", "وزن SMA %"], ["weights.yesterday", "وزن قمة/قاع أمس %"], ["weights.vwap", "وزن VWAP %"],
         ["weights.week", "وزن قمة/قاع الأسبوع %"], ["weights.trend", "وزن الاتجاه العام %"],

@@ -245,18 +245,60 @@ export function scoreSignal({ side, openPrice, sma15, sma35, sma50, sma200,
 /* ---------------------------------------------------------------------
    الخطّة: وقفٌ وأهدافٌ من ATR الـ15 دقيقة.
    --------------------------------------------------------------------- */
-export const DEFAULT_PLAN = { stopAtr: 1.5, targetsR: [1, 2, 3], minStopPct: 0.004 };
+export const DEFAULT_PLAN = { stopAtrMargin: 0.1, targetsR: [1, 2, 3], minTargetR: 1, maxTargets: 3 };
 
-export function buildPlan({ side, entry, atr15, cfg }) {
+/* آخر قاع/قمّة ساعةٍ مؤكَّدة (Pivot): ساعةٌ مغلقة قاعُها أدنى من قاعَي جارَتَيها
+   (للبيع: قمّتها أعلى)، وتقع في جهة الحماية من سعر الدخول. بحثٌ حتى 72 ساعة. */
+export function hourPivots(c15, openTime, side, entry) {
+  const hourStart = Math.floor(openTime / H1) * H1;
+  const hours = aggregateHours(c15.filter(k => k.t < hourStart)).slice(-74);
+  const buy = side === "BUY";
+  const out = [];   // الأحدث أولاً
+  for (let i = hours.length - 2; i >= 1; i--) {
+    const h = hours[i], a = hours[i - 1], b = hours[i + 1];
+    if (buy ? (h.l < a.l && h.l < b.l) : (h.h > a.h && h.h > b.h)) out.push(buy ? h.l : h.h);
+  }
+  return out;
+}
+
+/* الوقف = آخر pivot ساعة مؤكَّد في جهة الحماية ∓ هامش 0.1×ATR(15د).
+   الأهداف = مستوياتٌ سعريةٌ حقيقية (أمس/الأسبوع/VWAP/pivots الساعة المعاكسة) بعائد ≥ minTargetR،
+   وتُستكمل بمضاعفات R حين لا تكفي. */
+export function buildPlan({ side, entry, atr15, cfg, stopRef, levels }) {
   const c = { ...DEFAULT_PLAN, ...(cfg || {}) };
+  if (stopRef == null || !atr15) return null;
   const dir = side === "BUY" ? 1 : -1;
-  const risk = Math.max(c.stopAtr * atr15, entry * c.minStopPct);
+  const stop = stopRef - dir * c.stopAtrMargin * atr15;
+  const risk = (entry - stop) * dir;
+  if (!(risk > 0)) return null;
+  const real = (levels || []).filter(x => Number.isFinite(x) && (x - entry) * dir / risk >= c.minTargetR - 1e-9)
+    .sort((x, y) => (x - y) * dir);
+  const targets = [];
+  const far = x => targets.every(t => Math.abs(x - t) / risk > 0.05);
+  for (const x of real) { if (targets.length >= c.maxTargets) break; if (far(x)) targets.push(x); }
+  const kinds = targets.map(() => "level");
+  for (let m = 1; targets.length < c.maxTargets && m < 50; m++) {
+    const x = entry + dir * risk * m;
+    const last = targets.length ? targets[targets.length - 1] : entry;
+    if (m >= c.minTargetR && (x - last) * dir / risk > 0.25) { targets.push(x); kinds.push("multiple"); }
+  }
   return {
-    entry,
-    stop: entry - dir * risk,
-    targets: c.targetsR.map(r => entry + dir * risk * r),
-    risk, riskPct: risk / entry, rr: c.targetsR.slice()
+    entry, stop, stopRef, targets, targetKinds: kinds,
+    risk, riskPct: risk / entry, rr: targets.map(t => Math.round((t - entry) * dir / risk * 100) / 100)
   };
+}
+
+/* مدخلات الخطة لجهةٍ معيّنة، تُحسب مرّةً عند التقييم. */
+export function planContext(hist, openTime, side, openPrice, levels) {
+  const buy = side === "BUY";
+  const piv = hourPivots(hist, openTime, side, openPrice);
+  const stopRef = piv.length ? piv[0] : null;
+  const opp = hourPivots(hist, openTime, buy ? "SELL" : "BUY", openPrice);
+  const lv = [];
+  if (levels && levels.yesterday) lv.push(levels.yesterday.high, levels.yesterday.low);
+  if (levels && levels.week) lv.push(levels.week.high, levels.week.low);
+  if (levels && levels.vwap && levels.vwap.value != null) lv.push(levels.vwap.value);
+  return { stopRef, levels: lv.concat(opp) };
 }
 
 /* ---------------------------------------------------------------------
@@ -286,8 +328,9 @@ export function evaluateCandleOpen({ closed15, openTime, openPrice, weekly, weig
     levels, trendUp, hourConfirmed, weights
   });
   const a = atr(hist, 14);
-  const plan = a ? buildPlan({ side, entry: openPrice, atr15: a, cfg: planCfg }) : null;
+  const planCtx = planContext(hist, openTime, side, openPrice, levels);
+  const plan = a ? buildPlan({ side, entry: openPrice, atr15: a, cfg: planCfg, ...planCtx }) : null;
   return { ok: true, signal: true, side, openTime, openPrice, values: v,
            conditions: e15.conditions, hour: h, hourConfirmed, trendUp, levels,
-           score, atr15: a, plan };
+           score, atr15: a, plan, planCtx };
 }

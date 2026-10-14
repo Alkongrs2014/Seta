@@ -221,13 +221,17 @@ test("التقييم يعكس الجهة في SELL", () => {
   assert.equal(s.parts.week.score, 0.5);   // غير متاح → محايد
 });
 
-test("الخطة: وقفٌ وأهدافٌ بالاتجاه الصحيح وحدّ أدنى للمخاطرة", () => {
-  const b = buildPlan({ side: "BUY", entry: 100, atr15: 0.1 });
-  assert.ok(b.stop < 100 && b.targets[0] > 100 && b.targets[2] > b.targets[1]);
-  assert.ok(Math.abs(100 - b.stop) >= 100 * 0.004 - 1e-9);   // minStopPct
-  const s = buildPlan({ side: "SELL", entry: 100, atr15: 1 });
-  assert.ok(s.stop > 100 && s.targets[0] < 100);
-  assert.equal(Math.round((s.stop - 100) * 1000) / 1000, 1.5);
+test("الخطة: وقف pivot الساعة ∓0.1×ATR وأهداف حقيقية ≥1R تُستكمل بمضاعفات R", () => {
+  const b = buildPlan({ side: "BUY", entry: 100, atr15: 1, stopRef: 98, levels: [100.5, 103, 110, 90] });
+  assert.ok(Math.abs(b.stop - 97.9) < 1e-9);                 // 98 − 0.1×1
+  assert.equal(b.targets[0], 103);                           // 100.5 < 1R فيُهمل
+  assert.equal(b.targets[1], 110);
+  assert.ok(b.targets[2] > 110 && b.targetKinds[2] === "multiple");
+  assert.ok(b.rr[0] >= 1);
+  const s = buildPlan({ side: "SELL", entry: 100, atr15: 1, stopRef: 102, levels: [] });
+  assert.ok(Math.abs(s.stop - 102.1) < 1e-9);
+  assert.deepEqual(s.rr, [1, 2, 3]);                         // بلا مستويات: مضاعفات R
+  assert.equal(buildPlan({ side: "BUY", entry: 100, atr15: 1, stopRef: null }), null);
 });
 
 test("atr يعمل على آخر 14 شمعة", () => {
