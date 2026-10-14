@@ -1,2 +1,2 @@
 /* يكتبه scripts/publish-tunnel.mjs */
-window.PLATFORM_API = "https://reforms-professor-oldest-cassette.trycloudflare.com";
+window.PLATFORM_API = "https://performances-jane-sociology-extension.trycloudflare.com";
