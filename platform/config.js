@@ -1,2 +1,2 @@
 /* يكتبه scripts/publish-tunnel.mjs */
-window.PLATFORM_API = "https://teaching-another-voip-excel.trycloudflare.com";
+window.PLATFORM_API = "https://bloggers-catch-acer-adjustment.trycloudflare.com";
