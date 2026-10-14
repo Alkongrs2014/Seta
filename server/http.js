@@ -4,6 +4,7 @@
    لا شيءَ حسّاسٌ هنا: بيانات Binance عامة. تعديل الإعدادات يتطلّب
    ADMIN_TOKEN إن حُدِّد في البيئة، والربط الافتراضي على 127.0.0.1.
    ===================================================================== */
+import { classify } from "./tabs.js";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -172,13 +173,17 @@ async function api(engine, req, res, url, p) {
       since: q.since ? +q.since : undefined,
       open: q.open === "1", closed: q.closed === "1",
       sort: q.sort || "issued_at", dir: q.dir || "DESC",
-      limit: Math.min(+q.limit || 200, 1000), offset: +q.offset || 0
+      limit: q.tab === "strong" || q.tab === "liquid" ? 1000 : Math.min(+q.limit || 200, 1000), offset: +q.offset || 0
     });
     let list = rows.map(r => engine.publicOpp(r));
+    list.forEach(o => { o.tabInfo = classify(o, engine.settings); });
     if (q.tier) list = list.filter(o => o.tier === q.tier);
     if (q.hour === "1") list = list.filter(o => o.hour_confirmed);
     if (q.hour === "0") list = list.filter(o => !o.hour_confirmed);
     if (q.minExec) list = list.filter(o => (o.exec_quality ?? 0) >= +q.minExec);
+    if (q.tab === "strong") list = list.filter(o => o.tabInfo.strong).sort((a, b) => b.tabInfo.strongRank - a.tabInfo.strongRank);
+    if (q.tab === "liquid") list = list.filter(o => o.tabInfo.liquid).sort((a, b) => b.tabInfo.liquidRank - a.tabInfo.liquidRank);
+    if (q.tab === "strong" || q.tab === "liquid") list = list.slice(0, Math.min(+q.limit || 200, 1000));
     return send(res, 200, { now: Date.now(), count: list.length, items: list });
   }
 

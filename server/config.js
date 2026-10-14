@@ -53,6 +53,16 @@ export const DEFAULT_SETTINGS = {
   costs: { spotFeePct: 0.10, futuresFeePct: 0.05, slippageBps: 2, stopSlippageMult: 2 },
   /* الرافعة المعروضة للمستخدم (أثرٌ على الهامش والتصفية فقط) */
   leverages: [3, 5, 10, 20],
+  /* تبويبات العرض (فلترة وترتيب فقط؛ لا تؤثّر في إصدار الفرص) — القيم مبنية على توزيع Binance الفعلي:
+     Futures USDT-M: وسيط حجم 24س ≈ 3M وP75 ≈ 14M وP90 ≈ 74M؛ وسيط ATR%(15د) ≈ 0.6؛ RVOL وسيط ≈ 0.6 وP75 ≈ 1.0 */
+  activity: {
+    strongMinScore: 70, strongMinExec: 50,
+    futuresMinQuoteVolume24h: 20000000, futuresMaxSpreadPct: 0.05,
+    spotMinQuoteVolume24h: 5000000, spotMaxSpreadPct: 0.08,
+    minAtrPct: 0.35, maxAtrPct: 2.5,
+    minRvol: 1.0, rvolLookback: 20,
+    optMinAtrPct: 0.15, optMaxSpreadPct: 8, optMinOpenInterest: 20, optMinVolume24h: 5
+  },
   /* أدنى جودة تنفيذ لتصنيف الفرصة «قابلة للتنفيذ» */
   minExecQuality: 40
 };

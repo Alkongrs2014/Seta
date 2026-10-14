@@ -93,7 +93,12 @@
       '<div class="f"><small>الأهداف</small><b class="up">' + P(o.tp1) + " · " + P(o.tp2) + " · " + P(o.tp3) + "</b></div>" +
       '<div class="f"><small>التقييم</small><span class="score"><b>' + N(o.score, 0) + '</b><span class="meter"><i style="width:' + Math.min(100, o.score) + '%"></i></span></span></div>' +
       '<div class="f"><small>التنفيذ</small>' + tier + ' <b>' + N(o.exec_quality, 0) + "</b></div>" +
-      '<div class="f">' + conf + (lastP ? "<br>" + lastP : "") + "</div></div>";
+      '<div class="f">' + conf + (lastP ? "<br>" + lastP : "") + "</div>" + why(o) + "</div>";
+  }
+  function why(o) {
+    var t = o.tabInfo; if (!t || !state.showWhy) return "";
+    var r = state.showWhy === "strong" ? (t.strong ? t.reasons : []) : state.showWhy === "liquid" ? (t.liquid ? t.liquidReasons : []) : [];
+    return r.length ? '<div class="span2 why">' + r.map(function (x) { return "<span>" + esc(x) + "</span>"; }).join("") + "</div>" : "";
   }
   function marketName(o) {
     return o.market === "SPOT" ? "Spot" : o.market === "FUTURES" ? "Futures" : "Options";
@@ -148,10 +153,13 @@
   /* ---------- صفحات الأسواق ---------- */
   function renderMarket(market) {
     var key = "f_" + market;
-    var F = state.filters[key] || (state.filters[key] = { q: "", side: "", tier: "", hour: "", minScore: "0", sort: "issued_at", win: "86400000", st: "" });
+    var F = state.filters[key] || (state.filters[key] = { q: "", side: "", tier: "", hour: "", minScore: "0", sort: "issued_at", win: "86400000", st: "", tab: "latest" });
     var sides = market === "FUTURES" ? [["", "كل الاتجاهات"], ["BUY", "LONG"], ["SELL", "SHORT"]]
       : market === "OPTIONS" ? [["", "CALL + PUT"], ["BUY", "CALL"], ["SELL", "PUT"]] : null;
-    var h = '<div class="bar">' +
+    var tabs = [["latest", "أحدث الفرص"], ["strong", "الفرص القوية"], ["liquid", "عالية السيولة والنشاط"]];
+    var h = '<div class="tabs" id="mtabs">' + tabs.map(function (t) {
+      return '<button class="tab' + (F.tab === t[0] ? " on" : "") + '" data-tab="' + t[0] + '">' + t[1] + "</button>"; }).join("") + "</div>" +
+      '<p class="note" id="tabnote"></p><div class="bar">' +
       '<input type="search" id="fq" placeholder="بحث بالعملة…" value="' + esc(F.q) + '">' +
       (sides ? '<select id="fside">' + sides.map(function (s) { return '<option value="' + s[0] + '"' + (F.side === s[0] ? " selected" : "") + ">" + s[1] + "</option>"; }).join("") + "</select>" : "") +
       sel("ftier", F.tier, [["", "كل الفئات"], ["A", "A ممتازة"], ["B", "B جيدة"], ["C", "C متوسّطة"], ["D", "D ضعيفة التنفيذ"]]) +
@@ -173,6 +181,16 @@
         loadMarket(market, F);
       });
     });
+    view.querySelectorAll("#mtabs .tab").forEach(function (b) {
+      b.onclick = function () {
+        F.tab = b.dataset.tab; if (F.tab !== "latest") { F.win = "0"; } else { F.sort = "issued_at"; F.win = "86400000"; }
+        renderMarket(market);
+      };
+    });
+    var TN = { latest: "كل الفرص الجديدة من الأحدث إلى الأقدم (تشمل ضعيفة السيولة).",
+      strong: "تقييمٌ عالٍ وجودة تنفيذ مقبولة، مرتّبة بقوة الإشارة وجودة التنفيذ والسيولة. فرزٌ فقط — لا تُصدر فرصاً جديدة.",
+      liquid: "حجم 24س + سبريد منخفض + ATR% مناسب + RVOL حديث (حدودها في الإعدادات). فرزٌ فقط — لا تُصدر فرصاً جديدة." };
+    $("#tabnote").textContent = TN[F.tab];
     var p = loadMarket(market, F);
     if (market === "SPOT") api(API + "/api/bearish").then(function (r) {
       $("#bear").innerHTML = "<h2>إشارات هبوط — معلومات فقط</h2>" + (r.items.length ?
@@ -202,7 +220,9 @@
   }
   var loadTimer;
   function loadMarket(market, F) {
-    var q = "market=" + market + "&sort=" + F.sort + "&limit=300&minScore=" + F.minScore;
+    var q = "market=" + market + "&sort=" + (F.tab === "latest" ? F.sort : "issued_at") + "&limit=300&minScore=" + F.minScore;
+    if (F.tab !== "latest") q += "&tab=" + F.tab;
+    state.showWhy = F.tab;
     if (F.q) q += "&q=" + encodeURIComponent(F.q);
     if (F.side) q += "&side=" + F.side;
     if (F.tier) q += "&tier=" + F.tier;
@@ -212,6 +232,7 @@
     return api(API + "/api/opps?" + q).then(function (r) {
       var el = $("#mlist"); if (!el) return;
       el.innerHTML = r.items.length ? '<div class="list">' + r.items.map(oppRow).join("") + "</div>"
+        : F.tab !== "latest" ? '<div class="mutBox">لا فرص تطابق شروط هذا التبويب حالياً — تظل كل الفرص ظاهرةً في «أحدث الفرص».</div>'
         : '<div class="mutBox">لا فرص مطابقة. المحرّك يُقيّم كل افتتاح شمعة 15 دقيقة، والفرصة نادرة بطبيعة الشرط.</div>';
       bindRows();
     });
@@ -279,7 +300,14 @@
         ["weights.week", "وزن قمة/قاع الأسبوع %"], ["weights.trend", "وزن الاتجاه العام %"],
         ["weights.tf15", "نقاط فريم 15د"], ["weights.tf1h", "نقاط تأكيد الساعة"], ["weights.indicatorShare", "حصّة المؤشّرات من الدرجة"],
         ["costs.spotFeePct", "رسوم Spot % لكل جهة"], ["costs.futuresFeePct", "رسوم Futures % لكل جهة"], ["costs.slippageBps", "الانزلاق (نقطة أساس)"],
-        ["minExecQuality", "أدنى جودة تنفيذ"]
+        ["minExecQuality", "أدنى جودة تنفيذ"],
+        ["activity.strongMinScore", "القوية: أدنى تقييم"], ["activity.strongMinExec", "القوية: أدنى جودة تنفيذ"],
+        ["activity.futuresMinQuoteVolume24h", "السيولة: أدنى حجم 24س Futures (USDT)"], ["activity.futuresMaxSpreadPct", "السيولة: أقصى سبريد Futures %"],
+        ["activity.spotMinQuoteVolume24h", "السيولة: أدنى حجم 24س Spot (USDT)"], ["activity.spotMaxSpreadPct", "السيولة: أقصى سبريد Spot %"],
+        ["activity.minAtrPct", "التذبذب: أدنى ATR% (15د)"], ["activity.maxAtrPct", "التذبذب: أقصى ATR% (15د)"],
+        ["activity.minRvol", "النشاط: أدنى RVOL (آخر 15د ÷ المتوسط)"], ["activity.rvolLookback", "RVOL: عدد الشموع السابقة"],
+        ["activity.optMinAtrPct", "السيولة Options: أدنى ATR% للأصل"], ["activity.optMaxSpreadPct", "السيولة Options: أقصى سبريد العقد %"], ["activity.optMinOpenInterest", "السيولة Options: أدنى مراكز مفتوحة"],
+        ["activity.optMinVolume24h", "السيولة Options: أدنى حجم العقد 24س"]
       ];
       function get(p) { return p.split(".").reduce(function (a, k) { return a[k]; }, S); }
       var h = '<div class="card"><h2>الإعدادات</h2>' + fields.map(function (f) {

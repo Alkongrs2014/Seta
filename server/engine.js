@@ -12,6 +12,7 @@ import { ENV } from "./config.js";
 import * as DB from "./db.js";
 import { bget, fetchKlines, sourceHealth } from "./binance.js";
 import { MarketFeed } from "./feed.js";
+import { computeActivity } from "./tabs.js";
 import { evaluateCandleOpen, buildPlan, smaAt, M15, utcDayStart } from "./strategy.js";
 
 const sessionExpiry = (ts, n) => utcDayStart(ts) + ((n || 5) + 1) * 86400e3;
@@ -335,6 +336,7 @@ export class Engine {
         trendUp: r.trendUp, levels: r.levels, atr15: r.atr15, openPrice: r.openPrice
       },
       score: r.score, exec: execQ, tier, tierLabel: TIER_LABEL[tier],
+      activity: computeActivity(ev.closed15, ev.openTime, r.openPrice, r.atr15, S.activity.rvolLookback),
       plan: { ...plan, split: S.plan.tpSplit, expiresAt, breakeven: S.plan.breakevenAfterTp1 },
       quote: { ...quote, haveQuote, entrySource: haveQuote ? (side === "BUY" ? "ask" : "bid") : "last" },
       meta: { maintMarginPct: meta.maintMarginPct, quoteVolume24h: meta.quoteVolume24h, contractType: meta.contractType, change24h: meta.change24h },
@@ -420,6 +422,7 @@ export class Engine {
         values: r.values, conditions: r.conditions, hour: r.hour, hourConfirmed: r.hourConfirmed,
         trendUp: r.trendUp, levels: r.levels, atr15: r.atr15, openPrice: r.openPrice
       },
+      activity: computeActivity(ev.closed15, ev.openTime, r.openPrice, r.atr15, S.activity.rvolLookback),
       underlying: { symbol, entry: uEntry, plan: uPlan, source: this._optionSource(symbol) },
       score: r.score, exec: execQ, tier, tierLabel: TIER_LABEL[tier],
       contract: {
