@@ -6,6 +6,8 @@
        ──► (سعر العرض/الطلب + التمويل + OI)  ──►  الخطّة والجودة
        ──► قاعدة البيانات (منع التكرار)  ──►  بثّ SSE  ──►  المتابعة بالتيّار نفسه.
    ===================================================================== */
+import fs from "node:fs";
+import path from "node:path";
 import { ENV } from "./config.js";
 import * as DB from "./db.js";
 import { bget, fetchKlines, sourceHealth } from "./binance.js";
@@ -36,6 +38,17 @@ export class Engine {
     const line = `${new Date().toISOString()} ${msg}`;
     this.logs.push(line); if (this.logs.length > 300) this.logs.shift();
     console.log(line);
+    try {
+      const dir = path.join(path.dirname(ENV.DB_PATH), "logs");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.appendFileSync(path.join(dir, `engine-${line.slice(0, 10)}.log`), line + "\n");
+    } catch { /* التسجيل لا يُسقط المحرّك */ }
+  }
+
+  /* الوقت المصحَّح بفرق ساعة بايننس (يُقاس عند بدء كل مغذٍّ). */
+  now() {
+    const f = this.feeds && (this.feeds.spot || this.feeds.futures);
+    return Date.now() + (f ? f.stats.clockOffset : 0);
   }
 
   get settings() {
@@ -122,12 +135,12 @@ export class Engine {
   async recoverOpen() {
     for (const [id, { opp, st }] of [...this.tracks]) {
       if (opp.market === "OPTIONS") {
-        DB.addEvent(id, Date.now(), "gap", null, "إعادة تشغيل: لا تاريخ لحظي لعلاوة الخيار خلال التوقّف");
+        DB.addEvent(id, this.now(), "gap", null, "إعادة تشغيل: لا تاريخ لحظي لعلاوة الخيار خلال التوقّف");
         continue;
       }
       const market = opp.market.toLowerCase();
       const from = Math.max(opp.last_check_ts || 0, opp.issued_at || 0);
-      const now = Date.now();
+      const now = this.now();
       if (now - from < 90e3) continue;
       try {
         const start = Math.floor(from / 60e3) * 60e3 + 60e3;       // أول دقيقةٍ كاملةٍ بعد الإصدار
@@ -168,7 +181,7 @@ export class Engine {
     const marketKey = ev.market;                       // spot | futures
     try {
       if (ev.skipped) {
-        DB.logEval(Date.now(), marketKey, ev.symbol, ev.timing.candleOpenTs, "skipped_" + ev.skipped, null);
+        DB.logEval(this.now(), marketKey, ev.symbol, ev.timing.candleOpenTs, "skipped_" + ev.skipped, null);
         return;
       }
       const S = this.settings;
@@ -178,7 +191,7 @@ export class Engine {
       });
       if (!r.ok || !r.signal) return;
 
-      const detectedAt = Date.now();
+      const detectedAt = this.now();
       const optSource = this._optionSource(ev.symbol);
 
       if (marketKey === "spot") {
@@ -232,7 +245,7 @@ export class Engine {
       jobs.push(withTimeout(bget("futures", "/fapi/v1/openInterest", { symbol }, { weight: 1, retries: 0, timeoutMs: 2500 }), 3000));
     }
     const res = await Promise.allSettled(jobs);
-    const out = { fetchedAt: Date.now() };
+    const out = { fetchedAt: this.now() };
     if (res[0].status === "fulfilled") {
       const b = res[0].value;
       out.bid = +b.bidPrice; out.ask = +b.askPrice;
@@ -261,7 +274,7 @@ export class Engine {
     const haveQuote = quote.bid > 0 && quote.ask > 0;
     const entry = haveQuote ? (side === "BUY" ? quote.ask : quote.bid) : (lastTick ? lastTick.c : r.openPrice);
     const plan = buildPlan({ side, entry, atr15: r.atr15, cfg: S.plan });
-    if (!r.atr15) { DB.logEval(Date.now(), mk, ev.symbol, ev.openTime, "no_atr"); return; }
+    if (!r.atr15) { DB.logEval(this.now(), mk, ev.symbol, ev.openTime, "no_atr"); return; }
 
     const oiUsd = quote.oiContracts && (quote.markPrice || entry) ? quote.oiContracts * (quote.markPrice || entry) : null;
     const limits = S[mk];
@@ -272,7 +285,7 @@ export class Engine {
     });
     const tier = tierOf(r.score.total, execQ.score, S.minExecQuality);
 
-    const issuedAt = Date.now();
+    const issuedAt = this.now();
     const timing = {
       candleOpenTs: ev.openTime, dataArrivedAt: ev.timing.arrivedAt, exchangeEventTs: ev.timing.eventTs,
       detectedAt, issuedAt, lateMs: ev.timing.lateMs, quoteAt: quote.fetchedAt
@@ -336,7 +349,7 @@ export class Engine {
     const S = this.settings;
     const symbol = ev.symbol;
     const chain = await fetchChain(symbol);
-    const now = Date.now();
+    const now = this.now();
     const sel = selectOption({ direction: r.side, contracts: chain.contracts, now, settings: S.options });
     if (!sel.selected) {
       const miss = { symbol, side: r.side, ts: now, candleOpenTs: ev.openTime, rejected: sel.rejected,
@@ -361,7 +374,7 @@ export class Engine {
     });
     const tier = tierOf(r.score.total, execQ.score, S.minExecQuality);
 
-    const issuedAt = Date.now();
+    const issuedAt = this.now();
     const expiresAt = Math.min(issuedAt + S.plan.expiryMinutes * 60e3, c.expiry - 2 * 3600e3);
     const feeUsdPct = Math.min(0.0003 * uEntry * (c.unit || 1) / c.ask * 100, 12.5);
     const halfSpreadPct = c.spreadPct / 2;
@@ -428,7 +441,7 @@ export class Engine {
 
   /* مسحٌ دوري: الانتهاء لا يحتاج تحديث سعر، ويُحدَّث last_check للاسترداد. */
   _sweep() {
-    const now = Date.now();
+    const now = this.now();
     for (const { opp, st } of [...this.tracks.values()]) {
       if (opp.market === "OPTIONS") continue;
       const last = this.feeds[opp.market.toLowerCase()]?.getLast(opp.symbol);
@@ -444,7 +457,7 @@ export class Engine {
     for (const { opp, st } of open) {
       let q;
       try { q = await fetchContractQuote(opp.instrument); } catch { continue; }
-      const now = Date.now();
+      const now = this.now();
       const price = q.bid > 0 ? q.bid : (q.mark > 0 ? q.mark : null);
       if (price == null) continue;
       const res = applyUpdate(st, { ts: now, price, candleT: 0, cumHi: price, cumLo: price });
@@ -513,9 +526,10 @@ export class Engine {
     for (const [k, f] of Object.entries(this.feeds)) feeds[k] = f.health();
     const open = this.tracks.size;
     return {
-      now: Date.now(), startedAt: this.startedAt, uptimeSec: Math.round((Date.now() - this.startedAt) / 1000),
+      now: this.now(), startedAt: this.startedAt, uptimeSec: Math.round((this.now() - this.startedAt) / 1000),
       feeds, sources: sourceHealth(), openOpportunities: open, counters: this.counters,
       optionUnderlyings: [...this.optionUnderlyings],
+      monitorStartedAt: DB.kvGet("monitor_started_at"), pid: process.pid,
       memoryMB: Math.round(process.memoryUsage().rss / 1048576),
       node: process.version
     };

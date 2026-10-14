@@ -2,3 +2,5 @@
 data/opps.db*
 data/*.db-*
 node_modules/
+data/logs/
+data/server.lock

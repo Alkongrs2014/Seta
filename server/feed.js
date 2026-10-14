@@ -58,16 +58,18 @@ export class MarketFeed {
     ]);
     const vol = new Map(tickers.map(t => [t.symbol, { qv: +t.quoteVolume, last: +t.lastPrice, chg: +t.priceChangePercent }]));
     const out = new Map();
+    const excl = { not_trading: 0, not_usdt: 0, not_spot_allowed: 0, stable_base: 0, leveraged_token: 0, contract_type: 0 };
     for (const s of info.symbols) {
-      if (s.status !== "TRADING" || s.quoteAsset !== "USDT") continue;
+      if (s.status !== "TRADING") { excl.not_trading++; continue; }
+      if (s.quoteAsset !== "USDT") { excl.not_usdt++; continue; }
       if (isSpot) {
-        if (!s.isSpotTradingAllowed) continue;
-        if (STABLES.has(s.baseAsset)) continue;
-        if (/(UP|DOWN|BULL|BEAR)$/.test(s.baseAsset)) continue;
+        if (!s.isSpotTradingAllowed) { excl.not_spot_allowed++; continue; }
+        if (STABLES.has(s.baseAsset)) { excl.stable_base++; continue; }
+        if (/(UP|DOWN|BULL|BEAR)$/.test(s.baseAsset)) { excl.leveraged_token++; continue; }
       } else {
         const okType = s.contractType === "PERPETUAL" || s.contractType === "TRADIFI_PERPETUAL" ||
           (set.includeQuarterly && /QUARTER/.test(s.contractType));
-        if (!okType) continue;
+        if (!okType) { excl.contract_type++; continue; }
       }
       const v = vol.get(s.symbol) || { qv: 0, last: 0, chg: 0 };
       out.set(s.symbol, {
@@ -80,6 +82,7 @@ export class MarketFeed {
       });
     }
     this.meta = out;
+    this.excluded = excl;
     this.stats.universe = out.size;
     this.stats.universeAt = Date.now();
     return out;
@@ -236,7 +239,7 @@ export class MarketFeed {
   _onMsg(msg, connIdx) {
     const d = msg.data;
     if (!d || d.e !== "kline" || !d.k) return;
-    const arrivedAt = Date.now();
+    const arrivedAt = this.now();
     const k = d.k;
     const symbol = d.s;
     const s = this._st(symbol);

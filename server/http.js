@@ -96,6 +96,7 @@ export function startHttp(engine) {
       if (!res.headersSent) send(res, 500, { error: e.message });
     }
   });
+  server.on("error", e => { engine.log(`[http] ${e.code || e.message} — خروج`); process.exit(e.code === "EADDRINUSE" ? 3 : 4); });
   server.listen(ENV.PORT, ENV.HOST, () => engine.log(`الخادم: http://${ENV.HOST}:${ENV.PORT}`));
   return server;
 }
@@ -207,6 +208,28 @@ async function api(engine, req, res, url, p) {
     return send(res, 200, out);
   }
 
+  if (p === "/api/coverage") {
+    const out = {};
+    for (const [k, f] of Object.entries(engine.feeds)) {
+      const set = engine.settings[k];
+      const below = [...f.meta.values()].filter(x => !f.trackedSet?.has(x.symbol));
+      const stuck = [...f.trackedSet || []].filter(s => !f.state.get(s)?.ready);
+      out[k] = {
+        eligibleUniverse: f.meta.size, tracked: f.trackedSet?.size || 0, minQuoteVolume24h: set.minQuoteVolume24h,
+        excludedByExchangeRules: f.excluded, belowVolumeFilter: below.length,
+        belowVolumeSample: below.sort((a, b) => b.quoteVolume24h - a.quoteVolume24h).slice(0, 15).map(x => ({ s: x.symbol, v: Math.round(x.quoteVolume24h) })),
+        trackedButNotReady: stuck, seedFailed: f.stats.seedFailed, lateSkipped: f.stats.lateSkipped
+      };
+    }
+    return send(res, 200, out);
+  }
+  if (p === "/api/latency") {
+    const rows = DB.queryOpportunities({ limit: 1000 });
+    const d = rows.map(r => ({ id: r.id, market: r.market, symbol: r.symbol, arrivalMs: r.candle_arrived_at - r.candle_open_ts, issueMs: r.issued_at - r.candle_open_ts }));
+    const iss = d.map(x => x.issueMs).sort((a, b) => a - b);
+    const q = f => iss.length ? iss[Math.min(iss.length - 1, Math.floor(iss.length * f))] : null;
+    return send(res, 200, { n: d.length, p50: q(0.5), p90: q(0.9), p99: q(0.99), max: iss[iss.length - 1] ?? null, items: d.slice(0, 200) });
+  }
   if (p === "/api/logs") return send(res, 200, { lines: engine.logs.slice(-150) });
 
   return send(res, 404, { error: "unknown endpoint" });

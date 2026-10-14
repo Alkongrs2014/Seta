@@ -36,8 +36,8 @@ export const WEIGHT_BUDGET = { spot: 4800, futures: 1900, options: 300 };
 
 export const DEFAULT_SETTINGS = {
   /* الفلاتر */
-  spot:    { enabled: true, minQuoteVolume24h: 500000, maxSpreadPct: 0.6 },
-  futures: { enabled: true, minQuoteVolume24h: 2000000, maxSpreadPct: 0.3, includeQuarterly: false },
+  spot:    { enabled: true, minQuoteVolume24h: 100000, maxSpreadPct: 0.6 },
+  futures: { enabled: true, minQuoteVolume24h: 500000, maxSpreadPct: 0.3, includeQuarterly: false },
   options: { enabled: true, deltaMin: 0.35, deltaMax: 0.60, deltaTarget: 0.45,
              minDteHours: 20, maxDteDays: 45, maxSpreadPct: 12, minOpenInterest: 1, minVolume24h: 0,
              stopLossPct: 35, holdHoursModel: 6 },
