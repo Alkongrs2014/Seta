@@ -337,7 +337,7 @@ export class Engine {
       score: r.score, exec: execQ, tier, tierLabel: TIER_LABEL[tier],
       plan: { ...plan, split: S.plan.tpSplit, expiresAt, breakeven: S.plan.breakevenAfterTp1 },
       quote: { ...quote, haveQuote, entrySource: haveQuote ? (side === "BUY" ? "ask" : "bid") : "last" },
-      meta: { quoteVolume24h: meta.quoteVolume24h, contractType: meta.contractType, change24h: meta.change24h },
+      meta: { maintMarginPct: meta.maintMarginPct, quoteVolume24h: meta.quoteVolume24h, contractType: meta.contractType, change24h: meta.change24h },
       timing,
       costModel: {
         feePctPerSide: feePct, slippageBps: S.costs.slippageBps, stopSlippageMult: S.costs.stopSlippageMult,

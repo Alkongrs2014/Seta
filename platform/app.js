@@ -317,6 +317,70 @@
   function closeDetail() { $("#modal").hidden = true; document.body.style.overflow = ""; state.openId = null; }
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeDetail(); });
 
+  /* ---------- مخطط المستويات SL / E / T1-T3 (SVG متجاوب) ---------- */
+  function ladderHtml(o) {
+    var buy = isBuy(o), W = 360, H = 300, top = 18, bot = H - 18;
+    var hits = { tp1: 1, tp2: 2, tp3: 3 }[o.status] || (o.tps_hit || 0);
+    var L = [{ k: "SL", v: o.currentStop != null && hits > 0 ? o.currentStop : o.stop, c: "#ff4d5e" },
+             { k: "E", v: o.entry, c: "#8fb4ff" },
+             { k: "T1", v: o.tp1, c: "#00d19b", t: 1 }, { k: "T2", v: o.tp2, c: "#00d19b", t: 2 }, { k: "T3", v: o.tp3, c: "#00d19b", t: 3 }]
+      .filter(function (x) { return x.v != null; });
+    var cur = o.lastPrice;
+    var all = L.map(function (x) { return x.v; }).concat(cur != null ? [cur] : []);
+    var mx = Math.max.apply(null, all), mn = Math.min.apply(null, all), span = (mx - mn) || 1;
+    function yOf(v) { return top + (mx - v) / span * (bot - top); }
+    var items = L.map(function (x) { return { x: x, y: yOf(x.v) }; }).sort(function (a, b) { return a.y - b.y; });
+    for (var i = 1; i < items.length; i++) if (items[i].y - items[i - 1].y < 26) items[i].y = items[i - 1].y + 26;
+    var s = '<svg viewBox="0 0 ' + W + " " + Math.max(H, items[items.length - 1].y + 24) + '" class="ladder" role="img" aria-label="مخطط الدخول والأهداف والوقف">';
+    s += '<line x1="150" x2="150" y1="' + top + '" y2="' + (items[items.length - 1].y) + '" stroke="#3a4558" stroke-width="2"/>';
+    items.forEach(function (it) {
+      var x = it.x, hit = x.t && x.t <= hits, y = it.y;
+      s += '<line x1="20" x2="150" y1="' + y + '" y2="' + y + '" stroke="' + x.c + '" stroke-width="' + (x.k === "E" ? 3 : 2) + '"' + (x.k === "E" ? "" : ' stroke-dasharray="' + (hit ? "0" : "5 4") + '"') + "/>";
+      s += '<rect x="158" y="' + (y - 12) + '" width="40" height="24" rx="6" fill="' + x.c + '" opacity="' + (hit || !x.t ? 1 : 0.85) + '"/>' +
+        '<text x="178" y="' + (y + 5) + '" text-anchor="middle" font-size="13" font-weight="700" fill="#0b0f16">' + x.k + (hit ? "✓" : "") + "</text>" +
+        '<text x="206" y="' + (y + 5) + '" font-size="14" font-family="IBM Plex Mono,monospace" fill="' + x.c + '">' + P(x.v) + "</text>";
+      if (x.k === "E") s += '<circle cx="150" cy="' + y + '" r="7" fill="#8fb4ff" stroke="#fff" stroke-width="2"/>';
+    });
+    if (cur != null) {
+      var cy = Math.min(Math.max(yOf(cur), top), items[items.length - 1].y);
+      s += '<polygon points="150,' + cy + " 134," + (cy - 8) + " 134," + (cy + 8) + '" fill="#f5b912"/>' +
+        '<text x="128" y="' + (cy + 4) + '" text-anchor="end" font-size="12" fill="#f5b912">الآن ' + P(cur) + "</text>";
+    }
+    return '<div class="card"><h2>مخطط الصفقة · ' + dirLabel(o) + (hits ? " · تحقق T" + hits : "") + "</h2>" + s + "</svg></div>";
+  }
+
+  /* ---------- الرافعة المقترحة (Futures): تحليلٌ فقط، لا تنفيذ ---------- */
+  function leverageHtml(o) {
+    if (o.market !== "FUTURES" || o.entry == null || o.stop == null) return "";
+    var buy = isBuy(o), dir = buy ? 1 : -1, e = o.entry;
+    var stopPct = Math.abs(e - o.stop) / e;
+    var atrPct = (o.signal && o.signal.atr15 ? o.signal.atr15 : 0) / e;
+    var mmrPct = o.meta && o.meta.maintMarginPct != null ? o.meta.maintMarginPct : 0.5;
+    var vol = (o.meta && o.meta.quoteVolume24h) || 0;
+    var cap = vol >= 5e8 ? 100 : vol >= 1e8 ? 50 : vol >= 2e7 ? 20 : 10;
+    var need = Math.max(1.5 * stopPct, 3 * atrPct) + 0.001;
+    var pick = 1, why = "";
+    [100, 50, 20, 10, 5, 3, 2].forEach(function (Lv) {
+      if (pick !== 1 || Lv > cap) return;
+      if (1 / Lv - mmrPct / 100 >= need && stopPct * Lv <= 0.5) pick = Lv;
+    });
+    var liqDist = 1 / pick - mmrPct / 100, liq = e * (1 - dir * liqDist);
+    var lossAtStop = stopPct * pick * 100;
+    why = "الوقف يبعد " + pct(stopPct * 100, 2) + " والتذبذب (ATR15) " + pct(atrPct * 100, 2) + "؛ يلزم أن تبعد التصفية ≥ " + pct(need * 100, 2) +
+      " (1.5×الوقف أو 3×ATR)، وخسارة الوقف ≤ 50% من الهامش، والسقف " + cap + "x بحسب السيولة (حدود Binance الدقيقة تتطلب مفتاحاً موقّعاً فلا تُقرأ علناً).";
+    var rows = [1, 2, 3, 5, 10, 20, 50, 100].filter(function (Lv) { return Lv <= cap; }).map(function (Lv) {
+      var ld = 1 / Lv - mmrPct / 100, ok = ld > stopPct;
+      return "<tr><td class=\"mono\">" + Lv + "x</td><td class=\"mono\">" + P(e * (1 - dir * ld)) + "</td><td class=\"mono\">" + pct(stopPct * Lv * 100, 1) +
+        '</td><td class="' + (ok ? "up" : "dn") + '">' + (ok ? "آمن نسبياً" : "تصفية قبل الوقف") + "</td></tr>";
+    }).join("");
+    return '<div class="card"><h2>الرافعة المقترحة</h2><div class="levBig"><b class="mono">' + (pick === 1 ? "1x" : pick + "x") + "</b><span>" +
+      (pick === 1 ? "لا رافعة مناسبة" : "مقترحة") + '</span></div><table>' +
+      row("سعر التصفية التقديري", '<span class="dn mono">' + P(liq) + "</span> (" + pct(liqDist * 100, 2) + " من الدخول)") +
+      row("الخسارة عند الوقف", pct(lossAtStop, 1) + " من الهامش") +
+      '</table><p class="note">' + esc(why) + '</p><details><summary>جدول الرافعات</summary><table><tr><th>الرافعة</th><th>التصفية</th><th>خسارة الوقف/الهامش %</th><th>الحكم</th></tr>' + rows +
+      '</table></details><p class="note">تقدير هامش معزول مبسّط (MMR ' + N(mmrPct, 2) + '%)؛ لا يُطبَّق تلقائياً ولا تُنفَّذ صفقات.</p></div>';
+  }
+
   function chk(ok, val) { return '<span class="chk ' + (ok ? "up" : "dn") + '">' + (ok ? "✓" : "✗") + "</span> <span class=\"mono mut\">" + (val || "") + "</span>"; }
   function detailHtml(o) {
     var buy = isBuy(o), sg = o.signal || {}, v = sg.values || {}, c = sg.conditions ? (buy ? sg.conditions.buy : sg.conditions.sell) : {};
@@ -339,6 +403,7 @@
       '<span><i style="background:#f5b912"></i>SMA15</span><span><i style="background:#3d7ddb"></i>SMA35</span><span><i style="background:#b57bee"></i>SMA50</span><span><i style="background:#ffffff"></i>SMA200</span>' +
       '<span><i style="background:#00d19b"></i>الأهداف</span><span><i style="background:#ff4d5e"></i>الوقف</span><span class="dim">SMA من الشموع المغلقة السابقة (بدون الشمعة نفسها)</span></div>';
 
+    h += ladderHtml(o) + leverageHtml(o);
     h += '<div class="grid g2">';
     /* مستويات */
     var optPlan = o.market === "OPTIONS";
