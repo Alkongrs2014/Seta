@@ -1,2 +1,2 @@
 /* يكتبه scripts/publish-tunnel.mjs */
-window.PLATFORM_API = "https://blocks-namespace-watches-interaction.trycloudflare.com";
+window.PLATFORM_API = "https://reforms-professor-oldest-cassette.trycloudflare.com";
