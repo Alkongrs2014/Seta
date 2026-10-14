@@ -153,7 +153,7 @@
   /* ---------- صفحات الأسواق ---------- */
   function renderMarket(market) {
     var key = "f_" + market;
-    var F = state.filters[key] || (state.filters[key] = { q: "", side: "", tier: "", hour: "", minScore: "0", sort: "issued_at", win: "86400000", st: "", tab: "latest" });
+    var F = state.filters[key] || (state.filters[key] = { q: "", side: "", tier: "", hour: "", minScore: "0", sort: "issued_at", win: "0", st: "open", tab: "latest" });
     var sides = market === "FUTURES" ? [["", "كل الاتجاهات"], ["BUY", "LONG"], ["SELL", "SHORT"]]
       : market === "OPTIONS" ? [["", "CALL + PUT"], ["BUY", "CALL"], ["SELL", "PUT"]] : null;
     var tabs = [["latest", "أحدث الفرص"], ["strong", "الفرص القوية"], ["liquid", "عالية السيولة والنشاط"]];
@@ -165,7 +165,7 @@
       sel("ftier", F.tier, [["", "كل الفئات"], ["A", "A ممتازة"], ["B", "B جيدة"], ["C", "C متوسّطة"], ["D", "D ضعيفة التنفيذ"]]) +
       sel("fhour", F.hour, [["", "تأكيد الساعة: الكل"], ["1", "مؤكَّدة بالساعة"], ["0", "بلا تأكيد"]]) +
       sel("fscore", F.minScore, [["0", "أي تقييم"], ["60", "≥ 60"], ["70", "≥ 70"], ["80", "≥ 80"], ["90", "≥ 90"]]) +
-      sel("fst", F.st, [["", "كل الحالات"], ["open", "مفتوحة فقط"], ["closed", "منتهية فقط"]]) +
+      sel("fst", F.st, [["open", "النشطة حالياً"], ["", "السجل التاريخي (الكل)"], ["closed", "المنتهية فقط"]]) +
       sel("fsort", F.sort, [["issued_at", "الأحدث"], ["score", "الأعلى تقييماً"], ["exec_quality", "الأفضل تنفيذاً"]]) +
       sel("fwin", F.win, [["3600000", "آخر ساعة"], ["86400000", "آخر 24 ساعة"], ["604800000", "آخر 7 أيام"], ["0", "الكل"]]) +
       "</div>" + '<div id="mlist"><div class="mutBox">جارٍ التحميل…</div></div>' +
@@ -183,7 +183,7 @@
     });
     view.querySelectorAll("#mtabs .tab").forEach(function (b) {
       b.onclick = function () {
-        F.tab = b.dataset.tab; if (F.tab !== "latest") { F.win = "0"; } else { F.sort = "issued_at"; F.win = "86400000"; }
+        F.tab = b.dataset.tab; F.win = "0"; if (F.tab === "latest") F.sort = "issued_at";
         renderMarket(market);
       };
     });
@@ -231,9 +231,10 @@
     if (F.win !== "0") q += "&since=" + (Date.now() - Number(F.win));
     return api(API + "/api/opps?" + q).then(function (r) {
       var el = $("#mlist"); if (!el) return;
-      el.innerHTML = r.items.length ? '<div class="list">' + r.items.map(oppRow).join("") + "</div>"
+      var lbl = F.st === "open" ? "نشطة حالياً" : F.st === "closed" ? "منتهية" : "في السجل التاريخي";
+      el.innerHTML = '<div class="bar"><b>' + r.items.length + " فرصة " + lbl + "</b></div>" + (r.items.length ? '<div class="list">' + r.items.map(oppRow).join("") + "</div>"
         : F.tab !== "latest" ? '<div class="mutBox">لا فرص تطابق شروط هذا التبويب حالياً — تظل كل الفرص ظاهرةً في «أحدث الفرص».</div>'
-        : '<div class="mutBox">لا فرص مطابقة. المحرّك يُقيّم كل افتتاح شمعة 15 دقيقة، والفرصة نادرة بطبيعة الشرط.</div>';
+        : '<div class="mutBox">لا فرص مطابقة. المحرّك يُقيّم كل افتتاح شمعة 15 دقيقة، والفرصة نادرة بطبيعة الشرط.</div>');
       bindRows();
     });
   }

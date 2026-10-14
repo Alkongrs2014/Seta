@@ -63,14 +63,13 @@ export function classify(o, S) {
     atrPct < (mk === "OPTIONS" ? A.optMinAtrPct : A.minAtrPct) ? "حركة سعرية ضعيفة (ATR% منخفض)" : "تذبذب مفرط (ATR% مرتفع)"]);
   else checks.push([false, "", "ATR% غير متاح"]);
   if (rvol != null) checks.push([rvol >= A.minRvol, `نشاط حديث RVOL ${rvol.toFixed(2)}×`, `نشاط حديث ضعيف (RVOL ${rvol.toFixed(2)}×)`]);
-  /* الفرص القديمة المصدرة قبل هذه الميزة: RVOL غير مخزّن فلا يُقاس ولا يُخمَّن */
+  else checks.push([false, "", "RVOL غير مسجّل — لا تُصنَّف حتى تتوفر البيانات"]); /* لا يُخمَّن */
 
   const bad = checks.filter(c => !c[0]);
   out.weak = bad.map(c => c[2]);
   if (!bad.length) {
     out.liquid = true;
     out.liquidReasons.push(...checks.map(c => c[1]));
-    if (rvol == null) out.liquidReasons.push("RVOL غير مسجّل (فرصة قديمة)");
     const v = o.meta?.quoteVolume24h || 0;
     out.liquidRank = Math.round((liq * 0.4 + Math.min(rvol ?? 1, 3) / 3 * 100 * 0.3 + Math.min(Math.log10(v + 1) / 9, 1) * 100 * 0.3) * 10) / 10;
   }
