@@ -6,3 +6,4 @@ data/logs/
 data/server.lock
 data/reports/
 data/bin/
+data/tunnel.lock

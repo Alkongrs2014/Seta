@@ -10,6 +10,15 @@ const CF = fs.existsSync(path.join(ROOT, "data", "bin", "cloudflared.exe")) ? pa
 const CFG = path.join(ROOT, "platform", "config.js");
 const git = (...a) => execFileSync("git", a, { cwd: ROOT, stdio: "pipe" }).toString();
 
+/* منع النسخ المكررة: قفلٌ بمعرّف العملية؛ إن كانت نسخةٌ أخرى حيّة ننتهي بصمت */
+const LOCK = path.join(ROOT, "data", "tunnel.lock");
+try {
+  const old = parseInt(fs.readFileSync(LOCK, "utf8"), 10);
+  if (old && old !== process.pid) { try { process.kill(old, 0); console.log("نسخة أخرى تعمل:", old); process.exit(0); } catch {} }
+} catch {}
+fs.writeFileSync(LOCK, String(process.pid));
+process.on("exit", () => { try { if (fs.readFileSync(LOCK, "utf8") === String(process.pid)) fs.unlinkSync(LOCK); } catch {} });
+
 function publish(url) {
   fs.writeFileSync(CFG, `/* يكتبه scripts/publish-tunnel.mjs */\nwindow.PLATFORM_API = ${JSON.stringify(url)};\n`);
   try {
