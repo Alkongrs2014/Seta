@@ -40,14 +40,16 @@ function run() {
   p.stdout.on("data", on); p.stderr.on("data", on);
   p.on("error", e => { console.error("cloudflared:", e.message); setTimeout(run, 30000); });
   p.on("exit", () => { clearInterval(wd); setTimeout(run, 5000); });
-  /* حارس: إن لم يعد العنوان العام يردّ مرّتين متتاليتين نقتل النفق ليُعاد إنشاؤه بعنوانٍ جديد */
-  let bad = 0, cur = null;
+  /* حارس: إن لم يعد العنوان العام يردّ 4 مرّات متتالية نقتل النفق ليُعاد إنشاؤه بعنوانٍ جديد */
+  let bad = 0, cur = null, since = 0;
   const wd = setInterval(async () => {
     if (!done) return;
+    since ||= Date.now();
+    if (Date.now() - since < 120000) return; /* مهلة تسجيل النفق على حافة Cloudflare */
     cur ||= (fs.readFileSync(CFG, "utf8").match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/) || [])[0];
     try { const r = await fetch(cur + "/api/health", { signal: AbortSignal.timeout(10000) }); bad = r.ok ? 0 : bad + 1; }
     catch { bad++; }
-    if (bad >= 2) { console.error("النفق لا يردّ — إعادة إنشائه"); p.kill(); }
+    if (bad >= 4) { console.error("النفق لا يردّ — إعادة إنشائه"); p.kill(); }
   }, 60000);
 }
 run();
