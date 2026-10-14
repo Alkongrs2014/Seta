@@ -15,7 +15,7 @@ function publish(url) {
   try {
     git("add", "platform/config.js");
     git("commit", "-m", `عنوان الخادم المباشر: ${url}`);
-    git("pull", "--rebase", "-q", "origin", "main");
+    git("pull", "--rebase", "--autostash", "-q", "origin", "main");
     git("push", "-q", "origin", "main");
     console.log("نُشر:", url);
   } catch (e) { console.error("فشل النشر:", String(e.stderr || e.message).slice(0, 300)); }
@@ -30,6 +30,15 @@ function run() {
   };
   p.stdout.on("data", on); p.stderr.on("data", on);
   p.on("error", e => { console.error("cloudflared:", e.message); setTimeout(run, 30000); });
-  p.on("exit", () => setTimeout(run, 5000));
+  p.on("exit", () => { clearInterval(wd); setTimeout(run, 5000); });
+  /* حارس: إن لم يعد العنوان العام يردّ مرّتين متتاليتين نقتل النفق ليُعاد إنشاؤه بعنوانٍ جديد */
+  let bad = 0, cur = null;
+  const wd = setInterval(async () => {
+    if (!done) return;
+    cur ||= (fs.readFileSync(CFG, "utf8").match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/) || [])[0];
+    try { const r = await fetch(cur + "/api/health", { signal: AbortSignal.timeout(10000) }); bad = r.ok ? 0 : bad + 1; }
+    catch { bad++; }
+    if (bad >= 2) { console.error("النفق لا يردّ — إعادة إنشائه"); p.kill(); }
+  }, 60000);
 }
 run();

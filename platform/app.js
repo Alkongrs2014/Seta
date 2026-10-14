@@ -50,8 +50,27 @@
     return o.side === "BUY" ? "LONG" : "SHORT";
   }
   function isBuy(o) { return o.side === "BUY"; }
+  /* قراءة العنوان الحالي للنفق من config.js (يتغيّر عند إعادة تشغيل النفق المجاني) */
+  function refreshApi() {
+    if (location.hostname.indexOf("github.io") < 0) return Promise.resolve(false);
+    return fetch("platform/config.js?t=" + Date.now(), { cache: "no-store" }).then(function (r) { return r.text(); }).then(function (t) {
+      var m = t.match(/PLATFORM_API\s*=\s*"([^"]*)"/);
+      var n = m && m[1].replace(/\/+$/, "");
+      if (n && n !== API) { try { localStorage.removeItem("apiBase"); } catch (e) {} API = n; return true; }
+      return false;
+    }).catch(function () { return false; });
+  }
   function api(path, opts) {
-    return fetch(path, opts).then(function (r) { if (!r.ok) throw new Error(path + " → " + r.status); return r.json(); });
+    var used = API;
+    function go(p) {
+      return fetch(p, opts).then(function (r) { if (!r.ok) throw new Error(p + " → " + r.status); return r.json(); });
+    }
+    return go(path).catch(function (e) {
+      return refreshApi().then(function (changed) {
+        if (changed && used && path.indexOf(used) === 0) return go(API + path.slice(used.length));
+        throw new Error("تعذّر الاتصال بخادم البيانات — قد يكون الكمبيوتر مطفأً أو النفق يُعاد تشغيله. حاول بعد دقيقة. (" + e.message + ")");
+      });
+    });
   }
   function toast(msg) {
     var d = document.createElement("div"); d.className = "toast"; d.textContent = msg; document.body.appendChild(d);
@@ -525,7 +544,7 @@
     var dot = $("#liveDot");
     var es = new EventSource(API + "/api/stream");
     es.onopen = function () { dot.className = "live on"; };
-    es.onerror = function () { dot.className = "live bad"; };
+    es.onerror = function () { dot.className = "live bad"; refreshApi().then(function (ch) { if (ch) { es.close(); connect(); } }); };
     es.onmessage = function (ev) {
       var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       state.sseAt = Date.now();
