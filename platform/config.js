@@ -1,2 +1,2 @@
 /* يكتبه scripts/publish-tunnel.mjs */
-window.PLATFORM_API = "https://evanescence-camping-tunes-powered.trycloudflare.com";
+window.PLATFORM_API = "https://teaching-another-voip-excel.trycloudflare.com";
