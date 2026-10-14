@@ -178,3 +178,15 @@ export function logEval(ts, market, symbol, candleOpen, result, note) {
 export function pruneEvalLog(keepMs = 3 * 86400e3) {
   db.prepare("DELETE FROM eval_log WHERE ts<?").run(Date.now() - keepMs);
 }
+
+/* ---------- للتقارير الدورية ---------- */
+export function issuedBetween(from, to) {
+  return db.prepare("SELECT * FROM opportunities WHERE issued_at>=? AND issued_at<? ORDER BY issued_at").all(from, to).map(inflate);
+}
+export function evalCountsBetween(from, to) {
+  const out = {};
+  for (const r of db.prepare("SELECT market, result, COUNT(*) n FROM eval_log WHERE ts>=? AND ts<? GROUP BY 1,2").all(from, to)) {
+    out[`${r.market}:${r.result}`] = r.n;
+  }
+  return out;
+}

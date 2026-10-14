@@ -4,3 +4,4 @@ data/*.db-*
 node_modules/
 data/logs/
 data/server.lock
+data/reports/

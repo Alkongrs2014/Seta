@@ -15,6 +15,7 @@ import { MarketFeed } from "./feed.js";
 import { evaluateCandleOpen, buildPlan, smaAt, M15 } from "./strategy.js";
 import { execQualityLinear, tierOf, TIER_LABEL, leverageTable, optionExecQuality } from "./quality.js";
 import { initTrack, applyUpdate, summarize, CLOSED } from "./tracker.js";
+import { buildReport, reportMarkdown } from "./report.js";
 import { loadOptionUniverse, fetchChain, selectOption, optionPlan, fetchContractQuote } from "./options.js";
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
@@ -95,10 +96,34 @@ export class Engine {
       setInterval(() => this._sweep(), 20e3),
       setInterval(() => this._pollOptions().catch(e => this.log(`[options] متابعة: ${e.message}`)), 15e3),
       setInterval(() => this._broadcast({ type: "health", health: this.health() }), 10e3),
-      setInterval(() => { try { DB.pruneEvalLog(); } catch { /* */ } }, 6 * 3600e3)
+      setInterval(() => { try { DB.pruneEvalLog(); } catch { /* */ } }, 6 * 3600e3),
+      setInterval(() => this._maybeReport(), 5 * 60e3)
     ];
     await Promise.all(starts);
     this.recoverOpen().catch(e => this.log(`[recover] ${e.message}`));
+    this._maybeReport();
+  }
+
+  /* تقريرٌ آليٌّ كل 24 ساعةً فعلية منذ بدء المراقبة (يُستكمل ما فات بعد التوقّف). */
+  _maybeReport() {
+    try {
+      const DAYMS = 24 * 3600e3;
+      let last = DB.kvGet("last_report_at") || DB.kvGet("monitor_started_at");
+      if (!last) return;
+      const dir = path.join(path.dirname(ENV.DB_PATH), "reports");
+      for (let guard = 0; guard < 30 && Date.now() >= last + DAYMS; guard++) {
+        const from = last, to = last + DAYMS;
+        const r = buildReport({ from, to, issued: DB.issuedBetween(from, to),
+                                evalCounts: DB.evalCountsBetween(from, to), health: this.health() });
+        fs.mkdirSync(dir, { recursive: true });
+        const stamp = new Date(to).toISOString().replace(/[:.]/g, "-").slice(0, 16);
+        fs.writeFileSync(path.join(dir, `report-${stamp}.json`), JSON.stringify(r, null, 1));
+        fs.writeFileSync(path.join(dir, `report-${stamp}.md`), reportMarkdown(r));
+        DB.kvSet("last_report_at", to);
+        last = to;
+        this.log(`[report] أُنشئ تقرير ${stamp}: صدرت=${r.issued} منتهية=${r.closed}`);
+      }
+    } catch (e) { this.log(`[report] ${e.message}`); }
   }
 
   stop() {
@@ -377,7 +402,9 @@ export class Engine {
     const issuedAt = this.now();
     const expiresAt = Math.min(issuedAt + S.plan.expiryMinutes * 60e3, c.expiry - 2 * 3600e3);
     const feeUsdPct = Math.min(0.0003 * uEntry * (c.unit || 1) / c.ask * 100, 12.5);
-    const halfSpreadPct = c.spreadPct / 2;
+    /* الدخول عند Ask والمتابعة/الخروج عند Bid: السبريد كاملاً مدفوعٌ في السعرين،
+       فلا يُضاف نصف سبريدٍ ثانٍ في التكلفة (كان يُحتسب مرّتين). */
+    const halfSpreadPct = 0;
     const st = initTrack({
       side: "BUY", entry: oplan.entry, stop: oplan.stop, targets: oplan.targets, issuedAt, expiresAt,
       emitCandleT: 0, sma200: null, seenHi: c.bid, seenLo: c.bid,
@@ -410,7 +437,7 @@ export class Engine {
         candleOpenTs: ev.openTime, dataArrivedAt: ev.timing.arrivedAt, exchangeEventTs: ev.timing.eventTs,
         detectedAt, issuedAt, lateMs: ev.timing.lateMs
       },
-      costModel: { feePctPerSide: feeUsdPct, halfSpreadPct, slippageBps: S.costs.slippageBps },
+      costModel: { feePctPerSide: feeUsdPct, halfSpreadPct, spreadPaidInPricesPct: c.spreadPct, slippageBps: S.costs.slippageBps },
       track: st
     };
     const row = {

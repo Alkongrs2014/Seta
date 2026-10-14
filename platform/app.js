@@ -458,6 +458,7 @@
       state.sseAt = Date.now();
       if (m.type === "opp_new") {
         toast("فرصة جديدة: " + m.opp.symbol + " " + dirLabel(m.opp));
+        if (!document.hidden) fetch("/api/opps/" + m.opp.id + "/seen", { method: "POST" }).catch(function () {});
         if (["home", "spot", "futures", "options", "active"].indexOf(state.route) >= 0) go();
       } else if (m.type === "opp_update") {
         if (state.route === "active" || state.route === "closed" || state.route === "home") { clearTimeout(loadTimer); loadTimer = setTimeout(go, 800); }
