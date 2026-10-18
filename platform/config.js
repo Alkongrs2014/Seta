@@ -1,2 +1,2 @@
 /* يكتبه scripts/publish-tunnel.mjs */
-window.PLATFORM_API = "https://successfully-rom-functioning-norm.trycloudflare.com";
+window.PLATFORM_API = "https://promising-since-gates-conversations.trycloudflare.com";
