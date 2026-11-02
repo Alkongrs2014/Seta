@@ -1,2 +1,2 @@
 /* يكتبه scripts/publish-tunnel.mjs */
-window.PLATFORM_API = "https://stable-dressed-variables-talked.trycloudflare.com";
+window.PLATFORM_API = "https://powerseller-portal-recently-voice.trycloudflare.com";
