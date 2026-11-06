@@ -176,7 +176,16 @@ export class Engine {
       if (now - from < 90e3) continue;
       try {
         const start = Math.floor(from / 60e3) * 60e3 + 60e3;       // أول دقيقةٍ كاملةٍ بعد الإصدار
-        const rows = await fetchKlines(market, opp.symbol, "1m", { limit: 1000, startTime: start });
+        /* كل فترة التوقّف لا أول 1000 دقيقة فقط: التوقّف قد يمتدّ أياماً، وما بعد الدفعة الأولى كان
+           يُتجاهل فتُغلق الصفقة لاحقاً بسعر اللحظة (خروجٌ بعيدٌ خلف الوقف أو أهدافٌ مفقودة). */
+        const rows = [];
+        for (let s = start, guard = 0; s < now - 60e3 && guard < 20; guard++) {
+          const part = await fetchKlines(market, opp.symbol, "1m", { limit: 1000, startTime: s });
+          if (!part.length) break;
+          rows.push(...part);
+          s = part[part.length - 1].t + 60e3;
+          if (part.length < 1000) break;
+        }
         let replayed = 0;
         for (const k of rows) {
           if (k.ct >= now - 1000) break;                        // الدقيقة الجارية تتولاها التيّارات
@@ -331,7 +340,8 @@ export class Engine {
       side, entry, stop: plan.stop, targets: plan.targets, issuedAt, expiresAt,
       emitCandleT: ev.openTime, sma200: r.values.sma200,
       seenHi: lastTick ? lastTick.h : entry, seenLo: lastTick ? lastTick.l : entry,
-      plan: S.plan, feePct, halfSpreadPct, costs: S.costs, market
+      plan: S.plan, feePct, halfSpreadPct, costs: S.costs, market,
+      funding: market === "FUTURES" ? { pct8h: quote.fundingPct8h, next: quote.nextFundingTime } : null
     });
 
     const data = {
@@ -352,7 +362,9 @@ export class Engine {
       track: st
     };
     if (market === "FUTURES") {
-      data.leverage = leverageTable({ side, entry, stop: plan.stop, leverages: S.leverages, mmrPct: meta.maintMarginPct });
+      const slip = S.costs.slippageBps / 100;
+      data.leverage = leverageTable({ side, entry, stop: plan.stop, leverages: S.leverages, mmrPct: meta.maintMarginPct,
+        stopCostPct: 2 * S.costs.futuresFeePct + slip * (1 + S.costs.stopSlippageMult) + (quote.spreadPct || 0) / 2 });
       data.futures = { fundingPct8h: quote.fundingPct8h, oiUsd, markPrice: quote.markPrice, nextFundingTime: quote.nextFundingTime };
     }
 

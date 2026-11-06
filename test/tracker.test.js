@@ -168,3 +168,30 @@ test("الرافعة تُعرض ولا تدخل في التقييم؛ وتحذّ
   assert.equal(t[0].liqBeforeStop, false);
   assert.equal(t[2].liqBeforeStop, true);     // 20x: التصفية عند 4.5% بينما الوقف عند 6%
 });
+
+test("الوقف يُنفَّذ عند مستواه حين يمرّ به النطاق، لا عند إغلاقٍ لاحق أبعد", () => {
+  const st = mk("BUY");
+  /* شمعة دقيقة: قمّتها 99.5 وقاعها 96 وإغلاقها 96.5 — الوقف 98 داخل النطاق */
+  applyUpdate(st, upd(T0 + 60_000, 96.5, 99.5, 96, T0 + 60_000));
+  assert.equal(st.status, "sl");
+  assert.equal(st.legs[0].exit, 98);
+  assert.ok(st.final.rNet > -1.3 && st.final.rNet < -1, "خسارة ≈ 1R + التكاليف: " + st.final.rNet);
+});
+
+test("فجوة كاملة خلف الوقف: التنفيذ بأفضل سعرٍ متاح في النطاق", () => {
+  const st = mk("BUY");
+  applyUpdate(st, upd(T0 + 60_000, 95, 96, 94, T0 + 60_000));
+  assert.equal(st.status, "sl");
+  assert.equal(st.legs[0].exit, 96);
+});
+
+test("تمويل Futures يُخصم لكل موعد تمويلٍ أثناء الاحتفاظ (الطويل يدفع المعدّل الموجب)", () => {
+  const st = mk("BUY", { funding: { pct8h: 0.01, next: T0 + 3600e3 } });
+  /* الخروج بالوقف بعد 16.5 ساعة: موعدان (T0+1س و T0+9س) */
+  applyUpdate(st, upd(T0 + 16.5 * 3600e3, 97.5, 99, 97.5, T0 + 16.5 * 3600e3));
+  assert.equal(st.status, "sl");
+  assert.ok(Math.abs(st.legs[0].funding - 0.02) < 1e-12);
+  const short = mk("SELL", { funding: { pct8h: 0.01, next: T0 + 3600e3 } });
+  applyUpdate(short, upd(T0 + 2 * 3600e3, 102.5, 102.5, 101, T0 + 2 * 3600e3));
+  assert.ok(short.legs[0].funding < 0, "القصير يقبض المعدّل الموجب");
+});

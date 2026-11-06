@@ -70,10 +70,30 @@ export function buildStats(closed, { openCount = 0 } = {}) {
   const byDay = groupBy(rows, r => new Date(r.closed_at).toISOString().slice(0, 10));
   const byHourUtc = groupBy(rows, r => new Date(r.issued_at).getUTCHours());
 
+  /* نسب الوصول الفعلية للأهداف قبل الإغلاق، وتصنيفٌ موحّد للنتيجة */
+  const n = rows.length || 1;
+  const hitsOf = r => r.data?.track?.tpsHit ?? (r.outcome === "tp3" ? 3 : 0);
+  const share = f => Math.round(rows.filter(f).length / n * 1000) / 10;
+  const targets = {
+    tp1: share(r => hitsOf(r) >= 1), tp2: share(r => hitsOf(r) >= 2), tp3: share(r => hitsOf(r) >= 3),
+    slBeforeAnyTarget: share(r => r.outcome === "sl"),
+    targetThenBreakeven: share(r => r.outcome === "tp_sl"),
+    expired: share(r => r.outcome === "expired"), cancelled: share(r => r.outcome === "cancelled")
+  };
   return {
     generatedAt: Date.now(),
     open: openCount,
     overall: agg(rows),
+    targets,
+    definitions: {
+      win: "صافي الصفقة بعد كل التكاليف > 0 (يشمل هدفاً جزئياً ثم خروجاً عند الدخول إن بقي موجباً)",
+      sl: "ضربت الوقف قبل أي هدف",
+      tp_sl: "حقّقت هدفاً أو أكثر ثم أُغلق الباقي بالوقف المنقول إلى سعر الدخول",
+      tp3: "حقّقت كل الأهداف",
+      expired: "انتهت الصلاحية فأُغلقت بسعر السوق",
+      cancelled: "أُلغيت بقاعدة إلغاءٍ مسبقة قبل أي هدف",
+      notActivated: "لا ينطبق: الدخول بسعر السوق لحظة الإصدار"
+    },
     drawdown: maxDrawdownR(chrono),
     outcomes,
     byMarket: obj(groupBy(rows, r => r.market)),

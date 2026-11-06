@@ -324,6 +324,15 @@
         kpi("نسبة الفوز", o.n ? N(o.winRate, 1) + "%" : "—", o.n ? "خسارة " + N(o.lossRate, 1) + "%" : "") +
         kpi("متوسط العائد/المخاطرة", o.n ? N(o.avgR, 2) + "R" : "—", o.n ? "بعد الرسوم والانزلاق" : "") +
         kpi("أكبر تراجع", s.drawdown.maxDrawdownR != null ? N(s.drawdown.maxDrawdownR, 2) + "R" : "—", "على النتائج الافتراضية") + "</div>";
+      if (s.targets && o.n) {
+        var tg = s.targets, d = s.definitions || {};
+        h += '<div class="card"><h2>ماذا حدث فعلاً للفرص المنتهية</h2><div class="grid g4">' +
+          kpi("وصلت الهدف الأول", pct(tg.tp1, 1), "الثاني " + pct(tg.tp2, 1) + " · الثالث " + pct(tg.tp3, 1)) +
+          kpi("الوقف قبل أي هدف", pct(tg.slBeforeAnyTarget, 1), esc(d.sl || "")) +
+          kpi("هدف ثم خروج عند الدخول", pct(tg.targetThenBreakeven, 1), "ربحٌ جزئي ثم وقف التعادل") +
+          kpi("انتهت/أُلغيت", pct(tg.expired + tg.cancelled, 1), "أُغلقت بسعر السوق") + "</div>" +
+          '<p class="note">«الفوز» = ' + esc(d.win || "") + ". " + esc(d.notActivated || "") + "</p></div>";
+      }
       h += statTable("حسب السوق", s.byMarket, "السوق") + statTable("حسب السوق والاتجاه", s.bySide, "الاتجاه") +
         statTable("حسب مستوى التقييم", s.byScore, "التقييم") + statTable("حسب فئة التنفيذ", s.byTier, "الفئة") +
         statTable("مقارنة الاستراتيجية (تأكيد الساعة)", s.byHourConfirm, "الاستراتيجية") +
@@ -549,7 +558,8 @@
     if (o.leverage) {
       h += '<div class="card"><h2>أثر الرافعة (لا يدخل في التقييم)</h2><div class="tw"><table><tr><th>الرافعة</th><th class="n">الهامش</th><th class="n">سعر التصفية التقريبي</th><th class="n">المسافة للتصفية</th><th class="n">خسارة الوقف على الهامش</th><th>تنبيه</th></tr>' +
         o.leverage.map(function (L) { return "<tr><td>" + L.leverage + 'x</td><td class="n">' + pct(L.marginPct, 1) + '</td><td class="n">' + P(L.liqPrice) + '</td><td class="n">' + pct(L.liqDistPct, 2) +
-          '</td><td class="n">' + pct(L.stopLossOnMarginPct, 1) + "</td><td>" + (L.liqBeforeStop ? '<span class="dn">التصفية قبل الوقف!</span>' : '<span class="mut">—</span>') + "</td></tr>"; }).join("") +
+          '</td><td class="n">' + pct(L.stopLossOnMarginNetPct != null ? L.stopLossOnMarginNetPct : L.stopLossOnMarginPct, 1) + "</td><td>" +
+          (L.liqBeforeStop ? '<span class="dn">التصفية قبل الوقف!</span>' : L.liqNearStop ? '<span class="dn">التصفية قريبة جداً من الوقف</span>' : '<span class="mut">—</span>') + "</td></tr>"; }).join("") +
         '</table></div><p class="note">تقريبٌ بهامشٍ معزول ومعدّل صيانة أول شريحة؛ التصفية الفعلية تختلف بحسب الشرائح والرسوم.</p></div>';
     }
 

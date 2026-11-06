@@ -66,10 +66,12 @@ export const TIER_LABEL = {
 /* ---------- الرافعة (Futures) ----------
    هامشٌ معزول مبسّط: سعر التصفية التقريبي = الدخول × (1 ∓ 1/L ± mmr).
    لا يدخل في التقييم إطلاقاً — يُعرض كي يرى المستخدم المخاطرة. */
-export function leverageTable({ side, entry, stop, leverages, mmrPct }) {
+export function leverageTable({ side, entry, stop, leverages, mmrPct, stopCostPct }) {
   const dir = side === "BUY" ? 1 : -1;
   const mmr = (mmrPct == null ? 0.5 : mmrPct) / 100;
   const stopPct = Math.abs(entry - stop) / entry;
+  /* تكلفة صفقةٍ تُغلق بالوقف (رسوم الجهتين + انزلاق مضاعف + نصف سبريد) — تتضاعف بالرافعة كالسعر */
+  const costPct = (stopCostPct == null ? 0 : stopCostPct) / 100;
   return leverages.map(L => {
     const liqDist = 1 / L - mmr;                         // نسبة الحركة المسموحة قبل التصفية
     const liq = entry * (1 - dir * liqDist);
@@ -78,8 +80,11 @@ export function leverageTable({ side, entry, stop, leverages, mmrPct }) {
       marginPct: 100 / L,                                // الهامش كنسبةٍ من القيمة الاسمية
       liqPrice: liq,
       liqDistPct: liqDist * 100,
-      stopLossOnMarginPct: stopPct * L * 100,            // خسارة الوقف نسبةً إلى الهامش
-      liqBeforeStop: liqDist <= stopPct                  // تحذير: التصفية قبل الوقف
+      stopLossOnMarginPct: stopPct * L * 100,            // خسارة الوقف نسبةً إلى الهامش (حركة السعر فقط)
+      stopLossOnMarginNetPct: (stopPct + costPct) * L * 100, // ومع التكاليف
+      liqBeforeStop: liqDist <= stopPct,                 // تحذير: التصفية قبل الوقف
+      /* التصفية بسعر العلامة والوقف قد يُنفَّذ بانزلاق: هامشٌ أقلّ من 25% فوق مسافة الوقف خطِر */
+      liqNearStop: liqDist > stopPct && liqDist < stopPct * 1.25
     };
   });
 }

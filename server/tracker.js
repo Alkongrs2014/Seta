@@ -20,7 +20,7 @@ export const CLOSED = new Set(["tp3", "sl", "tp_sl", "expired", "cancelled"]);
 export const OPEN = new Set(["new", "active", "tp1", "tp2"]);
 
 export function initTrack({ side, entry, stop, targets, issuedAt, expiresAt, emitCandleT, sma200,
-                            seenHi, seenLo, plan, feePct, halfSpreadPct, costs, market }) {
+                            seenHi, seenLo, plan, feePct, halfSpreadPct, costs, market, funding }) {
   const split = plan.tpSplit;
   return {
     market, side, entry, stop0: stop, stop, targets: targets.slice(),
@@ -30,15 +30,27 @@ export function initTrack({ side, entry, stop, targets, issuedAt, expiresAt, emi
     emitCandleT, issuedAt, expiresAt, sma200,
     tpsHit: 0, breakeven: !!plan.breakevenAfterTp1, cancelOnSmaClose: !!plan.cancelOnSmaClose,
     feePct, halfSpreadPct: halfSpreadPct || 0, costs,
+    /* Futures: تقدير التمويل بمعدّل لحظة الإصدار لكل موعد تمويلٍ يقع أثناء الاحتفاظ بالرِّجل */
+    funding: market === "FUTURES" && funding && Number.isFinite(funding.pct8h) && funding.next
+      ? { pct8h: funding.pct8h, next: funding.next, everyMs: funding.everyMs || 8 * 3600e3 } : null,
     status: "new", closedAt: null, final: null
   };
+}
+
+/* عدد مواعيد التمويل بين الإصدار والخروج، والتكلفة (%) على الطويل حين المعدّل موجب */
+export function fundingCostPct(st, exitTs) {
+  const f = st.funding;
+  if (!f || exitTs < f.next) return 0;
+  const n = Math.floor((exitTs - f.next) / f.everyMs) + 1;
+  return n * f.pct8h * (st.side === "BUY" ? 1 : -1);
 }
 
 function closeLeg(st, leg, price, ts, kind) {
   leg.open = false; leg.exit = price; leg.exitTs = ts; leg.kind = kind;
   const r = legNetPct({ side: st.side, entry: st.entry, exit: price, kind, costs: st.costs,
                         feePct: st.feePct, halfSpreadPct: st.halfSpreadPct });
-  leg.net = r.net; leg.gross = r.gross; leg.cost = r.cost;
+  const fund = fundingCostPct(st, ts);
+  leg.net = r.net - fund; leg.gross = r.gross; leg.cost = r.cost + fund; leg.funding = fund;
 }
 
 function openLegs(st) { return st.legs.filter(l => l.open); }
@@ -77,7 +89,10 @@ export function applyUpdate(st, u, { newWindowMs = 5 * 60e3 } = {}) {
     /* 1) الوقف أولاً (تحفّظ) */
     const stopHit = buy ? lo <= st.stop : hi >= st.stop;
     if (stopHit) {
-      const px = buy ? Math.min(st.stop, u.price) : Math.max(st.stop, u.price);
+      /* أمر الوقف يُنفَّذ عند مستواه إن مرّ السعر به داخل نطاق التحديث (والانزلاق المضاعف في نموذج
+         التكلفة). وإن كان النطاق كلّه خلف الوقف (فجوة) فأفضل سعرٍ متاح فيه. الإغلاق اللاحق للشمعة
+         (حتى 60ث بعد ضرب الوقف في الاسترداد بشموع الدقيقة) لا يمثّل سعر التنفيذ. */
+      const px = buy ? (hi >= st.stop ? st.stop : hi) : (lo <= st.stop ? st.stop : lo);
       for (const l of openLegs(st)) closeLeg(st, l, px, u.ts, "stop");
       finish(st.tpsHit > 0 ? "tp_sl" : "sl", u.ts);
       events[events.length - 1].price = px;
