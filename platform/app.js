@@ -218,6 +218,10 @@
     state.route = r;
     document.querySelectorAll("#nav a[data-r]").forEach(function (a) { a.classList.toggle("on", a.dataset.r === r); });
     view.innerHTML = '<div class="mutBox">جارٍ التحميل…</div>';
+    /* حارس: اتصالٌ أول بطيء عبر النفق (أو متصفّح بلا AbortSignal.timeout) لا يترك الصفحة معلّقة */
+    clearTimeout(state.loadGuard);
+    var gen = state.loadGen = (state.loadGen || 0) + 1;
+    state.loadGuard = setTimeout(function () { if (state.loadGen === gen && $(".mutBox", view)) go(); }, 25000);
     Promise.resolve(routes[r]()).then(function () { retryN = 0; clearTimeout(retryT); }).catch(function (e) {
       if (e && e.offline) {
         view.innerHTML = offlineCard(e);
