@@ -19,6 +19,9 @@ try {
 fs.writeFileSync(LOCK, String(process.pid));
 process.on("exit", () => { try { if (fs.readFileSync(LOCK, "utf8") === String(process.pid)) fs.unlinkSync(LOCK); } catch {} });
 
+const log = (...a) => console.log(new Date().toISOString(), ...a);
+const localOk = () => fetch("http://127.0.0.1:8787/api/health", { signal: AbortSignal.timeout(5000) }).then(r => r.ok).catch(() => false);
+
 function publish(url) {
   fs.writeFileSync(CFG, `/* يكتبه scripts/publish-tunnel.mjs */\nwindow.PLATFORM_API = ${JSON.stringify(url)};\n`);
   try {
@@ -26,20 +29,32 @@ function publish(url) {
     git("commit", "-m", `عنوان الخادم المباشر: ${url}`);
     git("pull", "--rebase", "--autostash", "-q", "origin", "main");
     git("push", "-q", "origin", "main");
-    console.log("نُشر:", url);
-  } catch (e) { console.error("فشل النشر:", String(e.stderr || e.message).slice(0, 300)); }
+    log("نُشر:", url);
+  } catch (e) { log("فشل النشر:", String(e.stderr || e.message).slice(0, 300)); }
 }
 
+/* تأخير متصاعد بين محاولات إنشاء النفق: الإعادة السريعة المتكرّرة تولّد عناوين متلاحقة
+   (14 عنواناً في 45 دقيقة يوم 2026-11-06) وكل عنوانٍ جديد يكسر الصفحات المفتوحة حتى يُنشر. */
+let fails = 0;
 function run() {
+  const startedAt = Date.now();
   const p = spawn(CF, ["tunnel", "--no-autoupdate", "--url", "http://127.0.0.1:8787"], { cwd: ROOT });
   let done = false;
   const on = b => {
-    const m = String(b).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+    const s = String(b);
+    for (const line of s.split(/\r?\n/)) if (/\b(ERR|error|failed)\b/i.test(line)) log("cloudflared:", line.slice(0, 240));
+    const m = s.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
     if (m && !done) { done = true; publish(m[0]); }
   };
   p.stdout.on("data", on); p.stderr.on("data", on);
-  p.on("error", e => { console.error("cloudflared:", e.message); setTimeout(run, 30000); });
-  p.on("exit", () => { clearInterval(wd); setTimeout(run, 5000); });
+  p.on("error", e => { log("cloudflared:", e.message); setTimeout(run, 30000); });
+  p.on("exit", code => {
+    clearInterval(wd);
+    fails = Date.now() - startedAt < 10 * 60e3 ? fails + 1 : 0;
+    const delay = Math.min(5000 * 2 ** fails, 5 * 60e3);
+    log(`cloudflared خرج (code=${code}) بعد ${Math.round((Date.now() - startedAt) / 1000)}ث — إعادة بعد ${delay / 1000}ث`);
+    setTimeout(run, delay);
+  });
   /* حارس: إن لم يعد العنوان العام يردّ 4 مرّات متتالية نقتل النفق ليُعاد إنشاؤه بعنوانٍ جديد */
   let bad = 0, cur = null, since = 0;
   const wd = setInterval(async () => {
@@ -47,9 +62,11 @@ function run() {
     since ||= Date.now();
     if (Date.now() - since < 120000) return; /* مهلة تسجيل النفق على حافة Cloudflare */
     cur ||= (fs.readFileSync(CFG, "utf8").match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/) || [])[0];
-    try { const r = await fetch(cur + "/api/health", { signal: AbortSignal.timeout(10000) }); bad = r.ok ? 0 : bad + 1; }
+    try { const r = await fetch(cur + "/api/health", { signal: AbortSignal.timeout(15000) }); bad = r.ok ? 0 : bad + 1; }
     catch { bad++; }
-    if (bad >= 4) { console.error("النفق لا يردّ — إعادة إنشائه"); p.kill(); }
+    /* عنوانٌ جديد لا يُصلح خادماً متوقّفاً: لا نعيد إنشاء النفق إلا والخادم المحلي سليم */
+    if (bad && !(await localOk())) { log("الخادم المحلي لا يردّ — النفق يبقى كما هو"); bad = 0; return; }
+    if (bad >= 4) { log("النفق لا يردّ والخادم المحلي سليم — إعادة إنشائه"); p.kill(); }
   }, 60000);
 }
 run();

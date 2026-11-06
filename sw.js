@@ -32,7 +32,7 @@
    فالشبكة أوّلاً، والمخزَّن شبكةُ أمانٍ للانقطاع وحده. والكلفة مهلةُ
    الشبكة عند الفتح، وهي أرخص من عرض حسابٍ خاطئ.
    ===================================================================== */
-var CACHE = "btc-v4";
+var CACHE = "btc-v5";
 var SHELL = [
   "./", "./index.html",
   "./js/core.js", "./js/indicators.js", "./js/strategies.js",
@@ -69,7 +69,8 @@ self.addEventListener("fetch", function (e) {
   if (url.origin !== self.location.origin) return;
 
   /* واجهة المنصّة (/api) وصفحتها وملفّاتها: حيّة دائماً، لا تُعترض ولا تُخزَّن. */
-  if (url.pathname.indexOf("/api/") === 0 || url.pathname.indexOf("/platform") === 0) return;
+  /* على Pages المسار يبدأ بـ /Seta/ فيُفحص الجزء لا البداية. */
+  if (url.pathname.indexOf("/api/") >= 0 || url.pathname.indexOf("/platform") >= 0) return;
 
   /* `macro.json` من الشبكة أوّلاً، والمخزَّن احتياطٌ عند الانقطاع. */
   if (url.pathname.indexOf("/data/") >= 0) {

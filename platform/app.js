@@ -51,26 +51,61 @@
   }
   function isBuy(o) { return o.side === "BUY"; }
   /* قراءة العنوان الحالي للنفق من config.js (يتغيّر عند إعادة تشغيل النفق المجاني) */
+  /* مصدران للعنوان: نسخة Pages (تتأخّر 1–4 دقائق بعد كل نشر) ثم مستودع GitHub مباشرةً عبر API
+     (يُرى العنوان الجديد فور دفعه). الثاني محدود بـ60 طلباً/ساعة لكل IP فلا يُطلب أكثر من مرّة كل 20ث. */
+  var ghAt = 0;
+  function parseCfg(t) { var m = String(t).match(/PLATFORM_API\s*=\s*"([^"]*)"/); return m ? m[1].replace(/\/+$/, "") : null; }
+  function adopt(n) {
+    if (n && n !== API) { try { localStorage.removeItem("apiBase"); } catch (e) {} API = n; return true; }
+    return false;
+  }
   function refreshApi() {
     if (location.hostname.indexOf("github.io") < 0) return Promise.resolve(false);
-    return fetch("platform/config.js?t=" + Date.now(), { cache: "no-store" }).then(function (r) { return r.text(); }).then(function (t) {
-      var m = t.match(/PLATFORM_API\s*=\s*"([^"]*)"/);
-      var n = m && m[1].replace(/\/+$/, "");
-      if (n && n !== API) { try { localStorage.removeItem("apiBase"); } catch (e) {} API = n; return true; }
-      return false;
-    }).catch(function () { return false; });
+    return fetch("platform/config.js?t=" + Date.now(), { cache: "no-store" }).then(function (r) { return r.text(); })
+      .then(function (t) { return adopt(parseCfg(t)); }).catch(function () { return false; })
+      .then(function (ch) {
+        if (ch || Date.now() - ghAt < 20000) return ch;
+        ghAt = Date.now();
+        return fetch("https://api.github.com/repos/Alkongrs2014/Seta/contents/platform/config.js?ref=main&t=" + Date.now(),
+          { cache: "no-store", headers: { Accept: "application/vnd.github.raw" } })
+          .then(function (r) { return r.ok ? r.text() : ""; }).then(function (t) { return adopt(parseCfg(t)); })
+          .catch(function () { return false; });
+      });
   }
+  function rememberOk() { try { localStorage.setItem("apiOkAt", String(Date.now())); } catch (e) {} }
+  function lastOk() { try { return +localStorage.getItem("apiOkAt") || 0; } catch (e) { return 0; } }
   function api(path, opts) {
     var used = API;
     function go(p) {
-      return fetch(p, opts).then(function (r) { if (!r.ok) throw new Error(p + " → " + r.status); return r.json(); });
+      var o = Object.assign({ signal: AbortSignal.timeout ? AbortSignal.timeout(20000) : undefined }, opts || {});
+      return fetch(p, o).then(function (r) { if (!r.ok) throw new Error(p.replace(used, "") + " → " + r.status); rememberOk(); return r.json(); });
     }
     return go(path).catch(function (e) {
       return refreshApi().then(function (changed) {
         if (changed && used && path.indexOf(used) === 0) return go(API + path.slice(used.length));
-        throw new Error("تعذّر الاتصال بخادم البيانات — قد يكون الكمبيوتر مطفأً أو النفق يُعاد تشغيله. حاول بعد دقيقة. (" + e.message + ")");
+        var err = new Error(e.message);
+        err.offline = true;
+        throw err;
       });
     });
+  }
+  /* بطاقة انقطاع واضحة مع إعادة محاولة تلقائية متباعدة (15ث ← 30ث ← 60ث) */
+  var retryN = 0, retryT = null;
+  function offlineCard(e) {
+    var local = location.hostname.indexOf("github.io") < 0;
+    var ok = lastOk();
+    var wait = [15, 30, 60][Math.min(retryN, 2)];
+    clearTimeout(retryT);
+    retryT = setTimeout(function () { retryN++; go(); }, wait * 1000);
+    return '<div class="card"><h2>خادم المنصّة غير متاح الآن</h2>' +
+      '<p class="mut">' + (local
+        ? "الخادم المحلي لا يردّ. شغّله بالأمر <code class=\"mono\">npm start</code>."
+        : "الخادم يعمل على الكمبيوتر المنزلي ويُوصَل عبر نفقٍ مجاني. السبب غالباً واحد من: الكمبيوتر مطفأ أو نائم أو بلا إنترنت، أو النفق يُعاد إنشاؤه بعنوانٍ جديد (يُكتشف تلقائياً خلال دقيقة).") + "</p>" +
+      '<p class="note">آخر اتصالٍ ناجح من هذا الجهاز: ' + (ok ? T(ok) + " (منذ " + ago(ok) + ")" : "—") +
+      " · إعادة المحاولة تلقائياً بعد " + wait + "ث" +
+      ' · <a href="#" id="retryNow">أعد المحاولة الآن</a></p>' +
+      '<p class="note">قسم «تحليل BTC المتقدّم» لا يعتمد على هذا الخادم ويعمل دائماً: <a href="index.html">افتحه</a>.</p>' +
+      '<p class="note dim mono">' + esc(e.message) + "</p></div>";
   }
   function toast(msg) {
     var d = document.createElement("div"); d.className = "toast"; d.textContent = msg; document.body.appendChild(d);
@@ -116,9 +151,13 @@
     state.route = r;
     document.querySelectorAll("#nav a[data-r]").forEach(function (a) { a.classList.toggle("on", a.dataset.r === r); });
     view.innerHTML = '<div class="mutBox">جارٍ التحميل…</div>';
-    Promise.resolve(routes[r]()).catch(function (e) {
-      view.innerHTML = '<div class="card"><h2>تعذّر التحميل</h2><p class="mut">' + esc(e.message) +
-        '</p><p class="note">تأكّد أن خادم المنصّة يعمل: <code class="mono">npm start</code></p></div>';
+    Promise.resolve(routes[r]()).then(function () { retryN = 0; clearTimeout(retryT); }).catch(function (e) {
+      if (e && e.offline) {
+        view.innerHTML = offlineCard(e);
+        var a = $("#retryNow"); if (a) a.onclick = function (ev) { ev.preventDefault(); go(); };
+        return;
+      }
+      view.innerHTML = '<div class="card"><h2>تعذّر عرض الصفحة</h2><p class="mut">' + esc(e.message) + "</p></div>";
     });
   }
   window.addEventListener("hashchange", go);
@@ -585,8 +624,16 @@
   function connect() {
     var dot = $("#liveDot");
     var es = new EventSource(API + "/api/stream");
-    es.onopen = function () { dot.className = "live on"; };
-    es.onerror = function () { dot.className = "live bad"; refreshApi().then(function (ch) { if (ch) { es.close(); connect(); } }); };
+    state.sse = es;
+    es.onopen = function () {
+      dot.className = "live on"; rememberOk();
+      /* عاد الاتصال بعد انقطاع: أعد رسم الصفحة المعروضة إن كانت بطاقة الانقطاع */
+      if ($("#retryNow")) go();
+    };
+    es.onerror = function () {
+      dot.className = "live bad";
+      refreshApi().then(function (ch) { if (ch) { es.close(); connect(); if ($("#retryNow")) go(); } });
+    };
     es.onmessage = function (ev) {
       var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       state.sseAt = Date.now();
