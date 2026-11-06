@@ -36,9 +36,10 @@ function publish(url) {
 /* تأخير متصاعد بين محاولات إنشاء النفق: الإعادة السريعة المتكرّرة تولّد عناوين متلاحقة
    (14 عنواناً في 45 دقيقة يوم 2026-11-06) وكل عنوانٍ جديد يكسر الصفحات المفتوحة حتى يُنشر. */
 let fails = 0;
+/* --protocol http2: QUIC (UDP) على هذه الشبكة ينقطع بـ"failed to accept QUIC stream: timeout" فيسقط النفق ويتبدّل العنوان؛ TCP/443 أثبت. */
 function run() {
   const startedAt = Date.now();
-  const p = spawn(CF, ["tunnel", "--no-autoupdate", "--url", "http://127.0.0.1:8787"], { cwd: ROOT });
+  const p = spawn(CF, ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", "http://127.0.0.1:8787"], { cwd: ROOT });
   let done = false;
   const on = b => {
     const s = String(b);
