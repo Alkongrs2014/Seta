@@ -140,8 +140,75 @@
   }
 
   /* ---------- المسارات ---------- */
-  var routes = { home: renderHome, spot: m("SPOT"), futures: m("FUTURES"), options: m("OPTIONS"),
+  var routes = { home: renderHome, selected: renderSelected, spot: m("SPOT"), futures: m("FUTURES"), options: m("OPTIONS"),
     active: renderActive, closed: renderClosed, stats: renderStats, settings: renderSettings };
+
+  /* ---------- المنتقاة: المحرّك المنتقي MR20 على كون «الأعلى ربحاً» ---------- */
+  var SEL_STATE = { signal: ["إشارة ✓", "up"], no_signal: ["يُحلَّل — لا إشارة", "gray"], late: ["متأخّرة — لا إصدار", "neu"],
+    no_futures: ["لا عقد Futures", "dn"], error: ["خطأ بيانات", "dn"] };
+  function renderSelected() {
+    return Promise.all([api(API + "/api/selective"), api(API + "/api/stats?engine=mr20"), api(API + "/api/gainers")]).then(function (r) {
+      var s = r[0], st = r[1], g = r[2], V = s.rule.validation, h = "";
+      /* الحكم */
+      h += '<div class="card"><h2>' + (s.actionable.length ? "🎯 " : "⏸️ ") + esc(s.verdict) + "</h2>" +
+        '<p class="mut">المحرّك يحلّل كل عملات «الأعلى ربحاً» كل دقيقة، ولا يُصدر إلا حين تجتمع كل الشروط. وجود العملة في القائمة لا يعني فرصة.</p>';
+      s.actionable.forEach(function (o) { h += selCard(o); });
+      h += "</div>";
+      /* الصفقات الورقية المفتوحة */
+      if (s.open.length) {
+        h += '<div class="card"><h2>متابعة ورقية مفتوحة (' + s.open.length + ")</h2>" + s.open.map(oppRow).join("") + "</div>";
+      }
+      /* كون الأعلى ربحاً */
+      var stale = g.stale ? '<span class="pill dn">قائمة قديمة — آخر نجاح منذ ' + ago(g.fetchedAt) + (g.lastError ? " · " + esc(g.lastError) : "") + "</span>" : '<span class="pill up">محدّثة</span>';
+      h += '<div class="card"><h2>العملات المراقَبة من «الأعلى ربحاً» (' + g.list.length + ")</h2>" +
+        '<p class="note">' + stale + " آخر تحديث للقائمة: " + T(g.fetchedAt) + " (منذ " + ago(g.fetchedAt) + ") · كل " + g.refreshSec + "ث · آخر تحليل: " + (s.lastRunAt ? ago(s.lastRunAt) : "—") +
+        "<br>" + esc(g.source) + "</p>" +
+        '<div class="tw"><table><tr><th>#</th><th>العملة</th><th class="n">تغيّر 24س</th><th>عقد Futures</th><th>حالة التحليل</th><th class="n">RSI ساعة</th><th>الشروط</th></tr>' +
+        g.list.map(function (x) {
+          var a = s.statuses.find(function (y) { return y.symbol === x.symbol; }) || {};
+          var lab = SEL_STATE[a.state] || ["بانتظار التحليل", "gray"];
+          var checks = (a.checks || []).map(function (c) { return (c.ok ? "✓ " : "✗ ") + c.text; }).join(" · ") || esc(a.note || "");
+          return "<tr><td>" + x.rank + '</td><td class="mono">' + esc(x.symbol) + '</td><td class="n up"><span dir="ltr">' + (x.changePct >= 0 ? "+" : "") + N(x.changePct, 2) + "%</span></td><td class=\"mono\">" +
+            (x.futuresSymbol ? esc(x.futuresSymbol) : '<span class="dn">غير متوفّر</span>') + '</td><td><span class="pill ' + lab[1] + '">' + lab[0] + '</span></td><td class="n">' +
+            (a.rsi != null ? N(a.rsi, 1) : "—") + '</td><td><small>' + esc(checks) + "</small></td></tr>";
+        }).join("") + "</table></div>";
+      if (g.events && g.events.length) {
+        h += '<p class="note"><b>آخر التغييرات:</b> ' + g.events.slice(0, 20).map(function (e) {
+          return (e.event === "added" ? '<span class="up">+' : '<span class="dn">−') + esc(e.symbol) + "</span> <small class=\"dim\">" + ago(e.ts) + "</small>";
+        }).join(" · ") + "</p>";
+      }
+      h += "</div>";
+      /* الأداء الورقي الحيّ */
+      var o = st.overall || {};
+      h += '<div class="card"><h2>الأداء الورقي الحيّ لهذا المحرّك</h2><div class="grid g4">' +
+        kpi("صفقات منتهية", String(o.n || 0), "مفتوحة: " + st.open) +
+        kpi("الهدف الأول قبل الوقف", st.targets && o.n ? pct(st.targets.tp1, 1) : "—", "الوقف أولاً: " + (st.targets && o.n ? pct(st.targets.slBeforeAnyTarget, 1) : "—")) +
+        kpi("متوسط العائد", o.n ? N(o.avgR, 2) + "R" : "—", "بعد الرسوم والتمويل") +
+        kpi("Profit Factor", o.n ? (o.profitFactor == null ? "∞" : N(o.profitFactor, 2)) : "—", "أكبر تراجع " + (st.drawdown && o.n ? N(st.drawdown.maxDrawdownR, 1) + "R" : "—")) + "</div>" +
+        '<p class="note">يُعتمد المحرّك للتداول الحقيقي فقط بعد عيّنةٍ ورقيةٍ كافية (≥ 50 صفقة) تؤكّد نتائج الاختبار. حتى ذلك الحين كل الإصدارات ورقية.</p></div>';
+      /* التحقق التاريخي */
+      h += '<div class="card"><h2>على ماذا تستند هذه القاعدة؟</h2>' +
+        '<p class="mut">' + esc(s.rule.id.toUpperCase()) + ": شراء فقط حين RSI(14) لآخر ساعة مغلقة &lt; " + s.rule.rsiMax + "، واتجاه العملة وBTC اليومي صاعد (EMA20 &gt; EMA50). الوقف " + s.rule.stopAtr + "×ATR ساعة، الأهداف 1/2/3R، الوقف للدخول بعد الهدف الأول، الصلاحية 3 أيام.</p>" +
+        '<div class="grid g4">' + kpi("الهدف الأول قبل الوقف", pct(V.tp1BeforeStopPct, 1), "خارج العيّنة n=" + V.n) + kpi("متوسط العائد", N(V.avgR, 2) + "R", "PF " + N(V.pf, 2)) +
+        kpi("الوقف قبل أي هدف", pct(V.slFirstPct, 1), "أكبر تراجع " + N(V.maxDDR, 1) + "R") + kpi("فترة التطوير", "n=" + V.dev.n, "PF " + N(V.dev.pf, 2)) + "</div>" +
+        '<p class="note">' + esc(V.period) + " · " + esc(V.universe) + "<br>" + esc(V.costs) + "<br><b>" + esc(V.caveat) + "</b></p>" +
+        '<p class="note">للمقارنة: المحرّك القديم (تقاطع SMA200 على 15د) سجّل حيّاً 19,589 فرصة منتهية بـ PF 0.59 (Futures) و0.18 (Spot)، وكل العائلات الأخرى المختبرة كانت عند مستوى العشوائية بعد التكاليف. لا تَعِد هذه الأرقام بالمستقبل.</p></div>';
+      view.innerHTML = h;
+      view.querySelectorAll(".opp").forEach(function (el) { el.onclick = function () { openDetail(+el.dataset.id); }; });
+    });
+  }
+  function selCard(o) {
+    var c = o.confidence || {}, p = o.plan || {}, rk = o.risk || {};
+    var rr = p.rr ? p.rr.map(function (x) { return "1:" + x; }).join(" · ") : "—";
+    return '<div class="card sel"><h3>' + esc(o.symbol) + ' <span class="pill up">LONG</span> <small class="dim">Futures USDT-M · ' + esc(o.strategy || "") + "</small></h3>" +
+      '<div class="grid g4">' + kpi("منطقة الدخول", P(p.entryZone ? p.entryZone[0] : o.entry) + " – " + P(p.entryZone ? p.entryZone[1] : o.entry), "سعر الإصدار " + P(o.entry)) +
+      kpi("وقف الخسارة", P(o.stop), esc(o.stopReason || "")) + kpi("الأهداف", P(o.tp1) + " · " + P(o.tp2) + " · " + P(o.tp3), "العائد/المخاطرة " + rr) +
+      kpi("الهدف الأول قبل الوقف", c.tp1BeforeStopPct != null ? pct(c.tp1BeforeStopPct, 1) : "—", c.ci95 ? "فاصل ثقة 95%: " + c.ci95[0] + "–" + c.ci95[1] + "%" : "") + "</div>" +
+      "<p><b>أسباب القبول:</b> " + (o.checks || []).map(function (x) { return esc(x.text); }).join(" · ") + "</p>" +
+      "<p><b>شروط الإلغاء قبل الدخول:</b></p><ul>" + (o.cancelBefore || []).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" +
+      '<p class="note">المخاطرة: ' + esc(rk.level || "—") + " (" + N(rk.riskPct, 2) + "% من سعر الدخول · التكلفة/المخاطرة " + N((rk.costOverRisk || 0) * 100, 1) + "%) · " +
+      esc(c.basis || "") + " · المصدر: «الأعلى ربحاً» #" + (o.source ? o.source.rank + " (+" + N(o.source.change24hPct, 1) + "%)" : "—") + "</p></div>";
+  }
   function m(market) { return function () { return renderMarket(market); }; }
 
   function go() {

@@ -26,7 +26,9 @@ export const EXITS = {
   single1R:  { targetsR: [1], split: [1], be: 0 },
   single15R: { targetsR: [1.5], split: [1], be: 0 },
   single2R:  { targetsR: [2], split: [1], be: 0 },
-  trail:     { targetsR: [1, 4], split: [0.5, 0.5], be: 1, beOffsetR: 0.1, trailAtr: 2.5, trailAfter: 1 }
+  trail:     { targetsR: [1, 4], split: [0.5, 0.5], be: 1, beOffsetR: 0.1, trailAtr: 2.5, trailAfter: 1 },
+  wideTrail: { targetsR: [2, 20], split: [0.3, 0.7], be: 1, beOffsetR: 0.1, trailAtr: 6, trailAfter: 1 },
+  quick:     { targetsR: [0.5, 1], split: [0.5, 0.5], be: 0 }
 };
 
 function htfState(S, t) {
@@ -155,7 +157,45 @@ function* boSignals(S, P) {
   }
 }
 
-export function run({ strategies = ["OLD", "PB", "BO"] } = {}) {
+/* ---------- TF: اتجاه 4 ساعات — اختراق قمّة/قاع 20 شمعة 4س باتجاه اليومي ---------- */
+function* tfSignals(S, P, at15) {
+  const b = S.b4h, c = b.map(x => x.c), a4 = atr(b, 14);
+  for (let k = 60; k < b.length - 1; k++) {
+    const t = b[k].t + H4, i = at15.get(t);
+    if (i == null) continue;
+    const id = lastClosedIdx(S.b1d, DAY, t);
+    if (id < 0 || P.d_e50[id] == null || !a4[k]) continue;
+    let hh = -Infinity, ll = Infinity;
+    for (let j = k - 20; j < k; j++) { hh = Math.max(hh, b[j].h); ll = Math.min(ll, b[j].l); }
+    for (const side of ["BUY", "SELL"]) {
+      const d = side === "BUY" ? 1 : -1;
+      if ((P.d_e20[id] - P.d_e50[id]) * d <= 0) continue;
+      if (!(d > 0 ? c[k] > hh : c[k] < ll)) continue;
+      const entry = S.b15[i].o, stop = entry - d * 2 * a4[k];
+      yield { i, side, entry, stop, atr: a4[k] / 2 };
+    }
+  }
+}
+
+/* ---------- MR: ارتدادٌ متطرّف — RSI ساعة متطرّف عكس اتجاهٍ يومي سليم ---------- */
+function* mrSignals(S, P, at15) {
+  const b = S.b1h;
+  for (let k = 250; k < b.length - 1; k++) {
+    const t = b[k].t + H1, i = at15.get(t);
+    if (i == null) continue;
+    const id = lastClosedIdx(S.b1d, DAY, t), r = P.h_rsi[k], a = P.h_atr[k];
+    if (id < 0 || P.d_e50[id] == null || r == null || !a) continue;
+    for (const side of ["BUY", "SELL"]) {
+      const d = side === "BUY" ? 1 : -1;
+      if ((P.d_e20[id] - P.d_e50[id]) * d <= 0) continue;
+      if (!(d > 0 ? r < 25 : r > 75)) continue;
+      const entry = S.b15[i].o, stop = entry - d * 1.5 * a;
+      yield { i, side, entry, stop, atr: a };
+    }
+  }
+}
+
+export function run({ strategies = ["OLD", "PB", "BO", "TF", "MR"] } = {}) {
   const syms = universe();
   const btcS = loadSymbol("BTCUSDT"); const btc = { S: btcS, P: prep(btcS) };
   const out = [];
@@ -163,7 +203,9 @@ export function run({ strategies = ["OLD", "PB", "BO"] } = {}) {
     const S = sym === "BTCUSDT" ? btcS : loadSymbol(sym);
     if (!S) continue;
     const P = sym === "BTCUSDT" ? btc.P : prep(S);
-    const gens = { OLD: () => oldSignals(S), PB: () => pbSignals(S, P), BO: () => boSignals(S, P) };
+    const at15 = new Map(S.b15.map((x, i) => [x.t, i]));
+    const gens = { OLD: () => oldSignals(S), PB: () => pbSignals(S, P), BO: () => boSignals(S, P),
+      TF: () => tfSignals(S, P, at15), MR: () => mrSignals(S, P, at15) };
     let cnt = 0;
     for (const st of strategies) {
       for (const g of gens[st]()) {
@@ -179,7 +221,7 @@ export function run({ strategies = ["OLD", "PB", "BO"] } = {}) {
         for (const [name, e] of Object.entries(EXITS)) {
           const targets = e.targetsR.map(r => g.entry + dir * r * risk);
           rec.res[name] = simulate(S, { t, side: g.side, entry: g.entry, stop: g.stop, targets, split: e.split, atr: g.atr },
-            { be: e.be, beOffsetR: e.beOffsetR, trailAtr: e.trailAtr, trailAfter: e.trailAfter, expiryMs: st === "OLD" ? g.expiryMs : 3 * DAY });
+            { be: e.be, beOffsetR: e.beOffsetR, trailAtr: e.trailAtr, trailAfter: e.trailAfter, expiryMs: st === "OLD" ? g.expiryMs : st === "TF" ? 12 * DAY : 3 * DAY });
         }
         out.push(rec); cnt++;
       }

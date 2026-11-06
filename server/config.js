@@ -64,7 +64,9 @@ export const DEFAULT_SETTINGS = {
     optMinAtrPct: 0.15, optMaxSpreadPct: 8, optMinOpenInterest: 20, optMinVolume24h: 5
   },
   /* أدنى جودة تنفيذ لتصنيف الفرصة «قابلة للتنفيذ» */
-  minExecQuality: 40
+  minExecQuality: 40,
+  /* كون «الأعلى ربحاً» الديناميكي للمحرّك المنتقي (Binance Spot Top Gainers) */
+  gainers: { topN: 20, minQuoteVolume24h: 0, refreshSec: 60, excludeTags: ["bStocks"] }
 };
 
 export function mergeSettings(base, patch) {

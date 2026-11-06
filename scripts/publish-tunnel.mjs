@@ -43,7 +43,7 @@ function run() {
   let done = false;
   const on = b => {
     const s = String(b);
-    for (const line of s.split(/\r?\n/)) if (/\b(ERR|error|failed)\b/i.test(line)) log("cloudflared:", line.slice(0, 240));
+    for (const line of s.split(/\r?\n/)) if (/\b(ERR|error|failed)\b/i.test(line) && !/context canceled/.test(line)) log("cloudflared:", line.slice(0, 240));
     const m = s.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
     if (m && !done) { done = true; publish(m[0]); }
   };

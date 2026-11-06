@@ -36,11 +36,11 @@ export function topK(trades, K, rank) {
 }
 
 const report = { split: new Date(SPLIT).toISOString(), counts: {} };
-for (const st of ["OLD", "PB", "BO"]) report.counts[st] = { dev: dev.filter(s => s.strat === st).length, oos: oos.filter(s => s.strat === st).length };
+for (const st of ["OLD", "PB", "BO", "TF", "MR"]) report.counts[st] = { dev: dev.filter(s => s.strat === st).length, oos: oos.filter(s => s.strat === st).length };
 
 /* 1) كل استراتيجية × نموذج خروج، DEV و OOS */
 report.grid = {};
-for (const st of ["OLD", "PB", "BO"]) {
+for (const st of ["OLD", "PB", "BO", "TF", "MR"]) {
   for (const ex of Object.keys(all[0].res).concat(st === "OLD" ? [] : [])) {
     const d = tr(dev.filter(s => s.strat === st), ex), o = tr(oos.filter(s => s.strat === st), ex);
     if (!d.length) continue;
@@ -80,7 +80,7 @@ function search(base, exit, minN) {
   return res.sort((a, b) => b.shrunk - a.shrunk);
 }
 report.search = {};
-for (const st of ["OLD", "PB", "BO"]) for (const ex of ["live", "beAfter2", "single15R", "trail"]) {
+for (const st of ["OLD", "PB", "BO", "TF", "MR"]) for (const ex of ["live", "single15R", "trail", "wideTrail", "quick"]) {
   const base = dev.filter(s => s.strat === st);
   if (!base.length) continue;
   const top = search(base, ex, 60).slice(0, 5);
@@ -107,7 +107,7 @@ function walkForward(st, ex) {
   return { picks, test: metrics(tests), byMonth: by(tests, t => new Date(t.s.t).toISOString().slice(0, 7)) };
 }
 report.walkForward = {};
-for (const st of ["OLD", "PB", "BO"]) for (const ex of ["live", "single15R", "trail"]) report.walkForward[`${st}/${ex}`] = walkForward(st, ex);
+for (const st of ["OLD", "PB", "BO", "TF", "MR"]) for (const ex of ["live", "single15R", "trail", "wideTrail", "quick"]) report.walkForward[`${st}/${ex}`] = walkForward(st, ex);
 
 fs.writeFileSync(path.join(DIR, "report.json"), JSON.stringify(report, null, 1));
 const brief = o => o && o.n ? `n=${o.n} win=${o.winPct}% tp1=${o.tp1}% sl1st=${o.slFirst}% avgR=${o.avgR} pf=${o.pf} dd=${o.maxDDR}` : "n=0";

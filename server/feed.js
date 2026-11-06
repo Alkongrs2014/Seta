@@ -184,12 +184,24 @@ export class MarketFeed {
     this.group.start();
   }
 
+  /* إضافةٌ فورية لرموزٍ مطلوبة (عملات «الأعلى ربحاً») دون انتظار دورة الكون (10 دقائق) */
+  async ensureTracked(symbols) {
+    if (!this.trackedSet) return [];
+    const fresh = symbols.filter(s => this.meta.has(s) && !this.trackedSet.has(s));
+    if (fresh.length) await this._addStreams(fresh);
+    return fresh;
+  }
+
   async _refreshUniverse() {
     await this.discover();
     const next = this.pickTracked();
     const fresh = next.filter(s => !this.trackedSet.has(s));
     this.stats.tracked = next.length;
     if (!fresh.length) return;
+    await this._addStreams(fresh);
+  }
+
+  async _addStreams(fresh) {
     /* رموزٌ جديدة: اتصالٌ إضافي صغير لها */
     this.log(`[${this.market}] رموز جديدة: ${fresh.join(",")}`);
     for (const s of fresh) this.trackedSet.add(s);

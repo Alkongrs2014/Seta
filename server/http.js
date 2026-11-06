@@ -168,6 +168,7 @@ async function api(engine, req, res, url, p) {
   if (p === "/api/opps") {
     const rows = DB.queryOpportunities({
       market: q.market || undefined, status: q.status || undefined, side: q.side || undefined,
+      engine: q.engine === "mr20" || q.engine === "sma15" ? q.engine : undefined,
       symbol: q.q ? q.q.toUpperCase() : undefined,
       minScore: q.minScore ? +q.minScore : undefined,
       since: q.since ? +q.since : undefined,
@@ -216,8 +217,19 @@ async function api(engine, req, res, url, p) {
 
   if (p === "/api/stats") {
     const since = q.days ? Date.now() - (+q.days) * 86400e3 : 0;
-    const closed = DB.closedForStats(since);
-    return send(res, 200, buildStats(closed, { openCount: engine.tracks.size }));
+    const eng = q.engine === "mr20" ? "mr20" : "sma15";
+    const closed = DB.closedForStats(since, eng);
+    const openCount = eng === "mr20" ? DB.queryOpportunities({ engine: "mr20", open: true, limit: 1000 }).length : engine.tracks.size;
+    return send(res, 200, { engine: eng, ...buildStats(closed, { openCount }) });
+  }
+
+  if (p === "/api/gainers") {
+    if (!engine.gainers) return send(res, 503, { error: "not started" });
+    return send(res, 200, { now: Date.now(), ...engine.gainers.snapshot(), events: DB.universeEvents(80) });
+  }
+  if (p === "/api/selective") {
+    if (!engine.selective) return send(res, 503, { error: "not started" });
+    return send(res, 200, { now: Date.now(), gainers: engine.gainers.snapshot(), ...engine.selective.snapshot() });
   }
 
   if (p === "/api/bearish") return send(res, 200, { items: engine.bearish });

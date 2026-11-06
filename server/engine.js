@@ -9,6 +9,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ENV } from "./config.js";
+import { GainersUniverse } from "./gainers.js";
+import { SelectiveEngine } from "./selective.js";
 import * as DB from "./db.js";
 import { bget, fetchKlines, sourceHealth } from "./binance.js";
 import { MarketFeed } from "./feed.js";
@@ -79,10 +81,18 @@ export class Engine {
 
     await this._loadOpenTracks();
 
+    /* الأعلى ربحاً: كونٌ ديناميكي للمحرّك المنتقي؛ عقودها تُفرض على تيّار Futures فوراً */
+    const gainerFut = () => this.gainers ? this.gainers.list.map(g => g.futuresSymbol).filter(Boolean) : [];
+    this.gainers = new GainersUniverse({
+      getSettings: () => this.settings, log: m => this.log(m), now: () => this.now(),
+      onChange: () => { this.feeds.futures?.ensureTracked(gainerFut()).catch(e => this.log(`[gainers] تيّار: ${e.message}`)); }
+    });
+    this.selective = new SelectiveEngine({ engine: this, gainers: this.gainers, log: m => this.log(m) });
+
     const mkFeed = market => new MarketFeed({
       market,
       getSettings: () => this.settings,
-      forceTrack: () => [...this.optionUnderlyings],
+      forceTrack: () => [...this.optionUnderlyings, ...(market === "futures" ? gainerFut() : [])],
       onCandleOpen: ev => this._onCandleOpen(ev),
       onTick: ev => this._onTick(ev),
       log: m => this.log(m)
@@ -106,7 +116,11 @@ export class Engine {
       setInterval(() => { try { DB.pruneEvalLog(); } catch { /* */ } }, 6 * 3600e3),
       setInterval(() => this._maybeReport(), 5 * 60e3)
     ];
+    /* المنتقي يعتمد على REST وحده، فلا ينتظر تهيئة آلاف الرموز في التيّارات */
+    this.gainers.start();
+    this.selective.start();
     await Promise.all(starts);
+    this.feeds.futures?.ensureTracked(gainerFut()).catch(() => {});
     this.recoverOpen().catch(e => this.log(`[recover] ${e.message}`));
     this._maybeReport();
   }
@@ -134,6 +148,7 @@ export class Engine {
   }
 
   stop() {
+    this.gainers?.stop(); this.selective?.stop();
     for (const f of Object.values(this.feeds)) f.stop();
     for (const t of this._timers || []) clearInterval(t);
   }

@@ -60,8 +60,33 @@ export function openDb(file = ENV.DB_PATH) {
       id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, market TEXT, symbol TEXT,
       candle_open_ts INTEGER, result TEXT, note TEXT
     );
+    CREATE TABLE IF NOT EXISTS universe_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, symbol TEXT NOT NULL,
+      event TEXT NOT NULL, change_pct REAL, note TEXT
+    );
+    CREATE INDEX IF NOT EXISTS ix_univ_ts ON universe_events(ts);
   `);
+  migrate();
   return db;
+}
+
+/* ترحيلٌ غير هدّام: عمود «المحرّك» لتمييز فرص المحرّك المنتقي (mr20) عن القديم (sma15).
+   الصفوف القديمة تأخذ sma15 تلقائياً ولا تتغيّر أي قيمة فيها. */
+function migrate() {
+  const cols = db.prepare("PRAGMA table_info(opportunities)").all().map(c => c.name);
+  if (!cols.includes("engine")) db.exec("ALTER TABLE opportunities ADD COLUMN engine TEXT NOT NULL DEFAULT 'sma15'");
+  const idx = db.prepare("PRAGMA index_info(ux_opp)").all().map(c => c.name);
+  if (!idx.includes("engine")) {
+    db.exec("DROP INDEX IF EXISTS ux_opp; CREATE UNIQUE INDEX ux_opp ON opportunities(market, symbol, side, candle_open_ts, engine)");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS ix_opp_engine ON opportunities(engine, status)");
+}
+
+export function addUniverseEvent(ts, symbol, event, changePct, note) {
+  db.prepare("INSERT INTO universe_events(ts,symbol,event,change_pct,note) VALUES(?,?,?,?,?)").run(ts, symbol, event, changePct ?? null, note ?? null);
+}
+export function universeEvents(limit = 60) {
+  return db.prepare("SELECT ts,symbol,event,change_pct,note FROM universe_events ORDER BY id DESC LIMIT ?").all(limit);
 }
 
 export function getDb() { return db; }
@@ -95,15 +120,16 @@ export function kvSet(key, val) {
 
 /* ---------- الفرص ---------- */
 const COLS = ["market","symbol","instrument","side","candle_open_ts","status","score","exec_quality",
-  "hour_confirmed","entry","stop","tp1","tp2","tp3","candle_arrived_at","detected_at","issued_at","data"];
+  "hour_confirmed","entry","stop","tp1","tp2","tp3","candle_arrived_at","detected_at","issued_at","data","engine"];
 
-/* يُرجع {id, inserted}. التكرار (نفس الرمز والاتجاه والشمعة والسوق) لا يُدرَج. */
+/* يُرجع {id, inserted}. التكرار (نفس الرمز والاتجاه والشمعة والسوق والمحرّك) لا يُدرَج. */
 export function insertOpportunity(o) {
+  const engine = o.engine || "sma15";
   const exist = db.prepare(
-    "SELECT id FROM opportunities WHERE market=? AND symbol=? AND side=? AND candle_open_ts=?"
-  ).get(o.market, o.symbol, o.side, o.candle_open_ts);
+    "SELECT id FROM opportunities WHERE market=? AND symbol=? AND side=? AND candle_open_ts=? AND engine=?"
+  ).get(o.market, o.symbol, o.side, o.candle_open_ts, engine);
   if (exist) return { id: exist.id, inserted: false };
-  const vals = COLS.map(c => (c === "data" ? JSON.stringify(o.data) : (o[c] ?? null)));
+  const vals = COLS.map(c => (c === "data" ? JSON.stringify(o.data) : c === "engine" ? engine : (o[c] ?? null)));
   const r = db.prepare(
     `INSERT INTO opportunities(${COLS.join(",")}) VALUES(${COLS.map(() => "?").join(",")})`
   ).run(...vals);
@@ -158,8 +184,9 @@ export function getOpportunity(id) {
 }
 
 export function queryOpportunities({ market, status, side, symbol, minScore, since, limit = 200, offset = 0,
-                                     closed, open, sort = "issued_at", dir = "DESC" } = {}) {
+                                     closed, open, engine, sort = "issued_at", dir = "DESC" } = {}) {
   const where = [], args = [];
+  if (engine) { where.push("engine=?"); args.push(engine); }
   if (market) { where.push("market=?"); args.push(market); }
   if (side) { where.push("side=?"); args.push(side); }
   if (symbol) { where.push("(symbol LIKE ? OR instrument LIKE ?)"); args.push(`%${symbol}%`, `%${symbol}%`); }
@@ -174,11 +201,11 @@ export function queryOpportunities({ market, status, side, symbol, minScore, sin
   return db.prepare(sql).all(...args, limit, offset).map(inflate);
 }
 
-export function closedForStats(since = 0) {
+export function closedForStats(since = 0, engine = "sma15") {
   return db.prepare(
-    `SELECT * FROM opportunities WHERE status NOT IN ('new','active','tp1','tp2') AND r_net IS NOT NULL AND issued_at>=?
+    `SELECT * FROM opportunities WHERE status NOT IN ('new','active','tp1','tp2') AND r_net IS NOT NULL AND issued_at>=? AND engine=?
      ORDER BY closed_at`
-  ).all(since).map(inflate);
+  ).all(since, engine).map(inflate);
 }
 
 export function markSeen(id, ts) {
