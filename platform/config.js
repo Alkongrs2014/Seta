@@ -1,2 +1,2 @@
 /* يكتبه scripts/publish-tunnel.mjs */
-window.PLATFORM_API = "https://gentleman-substantially-sources-proceeds.trycloudflare.com";
+window.PLATFORM_API = "https://cal-meal-dimension-happy.trycloudflare.com";
